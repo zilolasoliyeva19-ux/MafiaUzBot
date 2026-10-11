@@ -16,13 +16,13 @@ from app.services.rooms import register_user
 router = Router(name="features")
 
 SHOP_ITEMS = {
-    "lucky_charm": {"name": "🍀 Omad tumor", "price": 50, "description": "Solo o‘yinda bir marta qo‘shimcha imkoniyat."},
-    "detective_badge": {"name": "🕵️ Detektiv nishoni", "price": 100, "description": "Profilingiz uchun maxsus nishon."},
-    "vip_frame": {"name": "👑 VIP ramka", "price": 250, "description": "Profilingiz uchun VIP bezak."},
-    "gold_badge": {"name": "🥇 Oltin nishon", "price": 300, "description": "Profilingiz uchun noyob kolleksiya buyumi."},
-    "neon_theme": {"name": "🌌 Neon mavzu", "price": 220, "description": "Profilingiz uchun neon uslubidagi kolleksiya."},
-    "ghost_emote": {"name": "👻 Arvoh emojisi", "price": 120, "description": "Inventaringiz uchun maxsus emojili buyum."},
-    "diamond_crown": {"name": "💎 Olmos toj", "price": 500, "description": "Shopdagi premium kolleksiya buyumi."},
+    "lucky_charm": {"name": "🍀 Omad tumor", "price": 50, "description": "Solo o‘yinda bir marta o‘lim zarbasini qaytaradi; ishlatilgach inventardan ketadi."},
+    "detective_badge": {"name": "🕵️ Detektiv nishoni", "price": 100, "description": "Profilingizda ko‘rinadigan detektiv nishoni."},
+    "vip_frame": {"name": "👑 VIP ramka", "price": 250, "description": "Profilingizda ko‘rinadigan VIP bezagi."},
+    "gold_badge": {"name": "🥇 Oltin nishon", "price": 300, "description": "Profilingizda ko‘rinadigan oltin nishon."},
+    "neon_theme": {"name": "🌌 Neon mavzu", "price": 220, "description": "Profilingizda ko‘rinadigan neon uslubi."},
+    "ghost_emote": {"name": "👻 Arvoh emojisi", "price": 120, "description": "Profilingizda ko‘rinadigan arvoh emojisi."},
+    "diamond_crown": {"name": "💎 Olmos toj", "price": 500, "description": "Profilingizda ko‘rinadigan olmos toj."},
 }
 
 
@@ -72,7 +72,7 @@ async def _show_profile(message: Message) -> None:
         f"💔 Mag‘lubiyatlar: <b>{losses}</b>\n"
         f"📈 G‘alaba foizi: <b>{win_rate}%</b>\n"
         f"🪙 Tangalar: <b>{coins}</b>\n"
-        f"🎒 Buyumlar: {len(inventory)}",
+        f"🎒 Buyumlar ({len(inventory)}): " + (", ".join(SHOP_ITEMS[item_id]["name"] for item_id in inventory if item_id in SHOP_ITEMS) or "hali yo‘q"),
         reply_markup=main_menu_keyboard(),
     )
 
@@ -344,9 +344,10 @@ def _solo_autoplay_after_elimination(game: dict) -> str:
             _solo_finish(game, winner)
             break
 
-        # Day vote among surviving bots.
+        # Day vote among surviving bots: show each voter's name and choice.
         alive = _solo_alive(game)
         tally = {p["id"]: 0 for p in alive}
+        narration.append(f"☀️ {game.get('round', 1)}-kun: muhokama boshlandi.")
         for voter in alive:
             choices = [p for p in alive if p["id"] != voter["id"]]
             if not choices:
@@ -358,16 +359,28 @@ def _solo_autoplay_after_elimination(game: dict) -> str:
             else:
                 preferred = [p for p in choices if _solo_team(p["role"]) == "mafia"]
             pool = preferred if preferred and random.random() < 0.7 else choices
-            tally[random.choice(pool)["id"]] += 1
+            vote_target = random.choice(pool)
+            tally[vote_target["id"]] += 1
+            comment = random.choice([
+                f"{vote_target['name']}ning harakati menga shubhali.",
+                f"Men {vote_target['name']}ga ovoz beraman.",
+                f"{vote_target['name']}dan izoh kutyapman.",
+                f"Hozircha {vote_target['name']}ni tanlayman.",
+            ])
+            narration.append(f"🗳️ <b>{voter['name']}</b>: {comment} Ovoz → <b>{vote_target['name']}</b>")
+        if random.random() < 0.28 and len(alive) > 1:
+            giver, receiver = random.sample(alive, 2)
+            gift = random.choice(["🌹 atirgul", "🍫 shokolad", "☕ qahva", "🎁 kichik sovg‘a"])
+            narration.append(f"🎁 <b>{giver['name']}</b> {receiver['name']}ga {gift} yubordi.")
         if tally:
             high = max(tally.values())
             leaders = [p for p in alive if tally[p["id"]] == high]
             if len(leaders) == 1 and random.random() < 0.82:
                 nominee = leaders[0]
                 nominee["alive"] = False
-                narration.append(f"🗳️ Ovoz bilan {nominee['name']} ({_solo_role_label(nominee['role'])}) chiqarildi.")
+                narration.append(f"⚖️ Ovoz natijasi: {nominee['name']} ({_solo_role_label(nominee['role'])}) o‘yindan chiqarildi.")
             else:
-                narration.append("🗳️ Ovozlar tenglashdi, hech kim chiqarilmadi.")
+                narration.append("🤝 Ovozlar tenglashdi, hech kim chiqarilmadi.")
 
         winner = _solo_winner(game)
         if winner:
@@ -588,12 +601,17 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             night_lines = []
             protected_ids = {protection_target["id"]} if protection_target else set()
             seen_attacks = set()
+            inventory = await _inventory(session, uid)
             for victim, source in attacks:
                 if victim["id"] in seen_attacks:
                     continue
                 seen_attacks.add(victim["id"])
                 if victim["id"] in protected_ids:
                     night_lines.append(f"🛡️ {victim['name']}ga qilingan hujum qaytarildi.")
+                elif victim.get("is_player") and "lucky_charm" in inventory:
+                    inventory.remove("lucky_charm")
+                    await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
+                    night_lines.append("🍀 Omad tumori ishga tushdi! Sizga qilingan halokatli zarba qaytarildi. Tumor ishlatildi.")
                 else:
                     victim["alive"] = False
                     night_lines.append(f"💀 {victim['name']} tunda halok bo‘ldi.")
