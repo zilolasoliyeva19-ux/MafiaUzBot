@@ -835,7 +835,17 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 f"👎 Dislike: <b>{dislikes}</b>\n\n"
             )
             hanged = likes > dislikes
-            if hanged and target and target["alive"]:
+            charm_saved = False
+            if hanged and target_is_player:
+                inventory = await _inventory(session, uid)
+                if "lucky_charm" in inventory:
+                    inventory.remove("lucky_charm")
+                    await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
+                    hanged = False
+                    charm_saved = True
+            if charm_saved:
+                result_text += "🍀 <b>Omad tumori ishga tushdi!</b> Siz suddan qutuldingiz. Tumor ishlatildi."
+            elif hanged and target and target["alive"]:
                 target["alive"] = False
                 result_text += (
                     f"🔨 <b>{trial['target_name']} OSILDI!</b>\n"
