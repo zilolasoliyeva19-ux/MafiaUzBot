@@ -38,7 +38,7 @@ def group_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🏠 Xona yaratish", callback_data="group:create"),
          InlineKeyboardButton(text="🎮 Ochiq xonalar", callback_data="group:rooms")],
         [InlineKeyboardButton(text="📜 Qoidalar", callback_data="group:rules"),
-         InlineKeyboardButton(text="🤖 Solo Game", url=BOT_URL)],
+         InlineKeyboardButton(text="🤖 Solo Game", url=f"{BOT_URL}?start=solo")],
         [InlineKeyboardButton(text="🌐 Mini App / Profil / Shop", url=BOT_URL)],
     ])
 
