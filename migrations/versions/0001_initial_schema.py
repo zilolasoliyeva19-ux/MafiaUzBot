@@ -41,7 +41,6 @@ def upgrade() -> None:
         sa.CheckConstraint("max_players >= min_players", name="ck_room_player_range"),
         sa.UniqueConstraint("room_code"),
     )
-    op.create_index("ix_game_rooms_room_code", "game_rooms", ["room_code"])
     op.create_index("ix_game_rooms_status_activity", "game_rooms", ["status", "last_activity_at"])
 
     op.create_table(
@@ -125,7 +124,6 @@ def downgrade() -> None:
     op.drop_index("ix_participants_user", table_name="game_participants")
     op.drop_table("game_participants")
     op.drop_index("ix_game_rooms_status_activity", table_name="game_rooms")
-    op.drop_index("ix_game_rooms_room_code", table_name="game_rooms")
     op.drop_table("game_rooms")
     op.drop_index("ix_users_wins", table_name="users")
     op.drop_table("users")
