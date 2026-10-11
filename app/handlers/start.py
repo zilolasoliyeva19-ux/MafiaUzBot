@@ -3,7 +3,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.keyboards import main_menu_keyboard
-from app.database import SessionFactory
+from app.database import get_session_factory
 from app.services.rooms import register_user
 
 router = Router(name="start")
@@ -46,7 +46,7 @@ async def start_handler(message: Message) -> None:
     if message.from_user is not None:
         user = message.from_user
         display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 await register_user(
                     session,
