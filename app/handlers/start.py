@@ -68,3 +68,18 @@ async def planned_feature_handler(message: Message) -> None:
         f"🛠 {feature} bo‘limi keyingi ishlab chiqish bosqichida qo‘shiladi.",
         reply_markup=main_menu_keyboard(),
     )
+
+
+@router.message(Command("play"))
+@router.message(Command("create"))
+@router.message(Command("join"))
+@router.message(Command("profile"))
+@router.message(Command("leaderboard"))
+@router.message(Command("leave"))
+@router.message(lambda message: message.text in {"🎮 O‘yin o‘ynash", "🏠 Xona yaratish", "🚪 Xonaga qo‘shilish"})
+async def upcoming_gameplay_handler(message: Message) -> None:
+    await message.answer(
+        "🚧 Bu funksiya hali ishlab chiqilmoqda. Hozircha menyu, yordam va qoidalar bo‘limlari ishlaydi. "
+        "Xona va o‘yin mexanikasi keyingi bosqichda qo‘shiladi.",
+        reply_markup=main_menu_keyboard(),
+    )
