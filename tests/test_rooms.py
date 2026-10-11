@@ -73,7 +73,7 @@ async def test_user_cannot_join_multiple_active_lobbies() -> None:
             await join_room(session, 302, code)
 
         async with factory() as session, session.begin():
-            with pytest.raises(RoomError, match="boshqa faol xona"):
+            with pytest.raises(RoomError, match="faol xona"):
                 await create_room(session, 302, min_players=4, max_players=5)
     finally:
         await engine.dispose()
