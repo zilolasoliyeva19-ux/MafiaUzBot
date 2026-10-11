@@ -383,7 +383,7 @@ def _solo_autoplay_after_elimination(game: dict) -> str:
         "draw": "🤝 O‘yin durang bilan tugadi.",
     }.get(winner, "O‘yin tugadi."))
     game["spectator_log"] = narration
-    return "\\n".join(narration)
+    return "\n".join(narration)
 
 
 def _solo_role_label(role: str):
@@ -609,6 +609,15 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             game["round"] += 0
             game["log"] = night_lines
             await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
+            if game["status"] == "finished":
+                user = await session.get(User, uid)
+                if user:
+                    user.games_played += 1
+                    if player["alive"] and winner == _solo_team(player["role"]):
+                        user.wins += 1
+                        await _set_value(session, f"u:{uid}:coins", str(await _coins(session, uid) + 50))
+                    else:
+                        user.losses += 1
             result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
@@ -795,7 +804,8 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 result_text += "🕊️ <b>DISLIKE KO‘P.</b> Sudlanuvchi ozod qilindi."
 
             if target_is_player and hanged:
-                _solo_autoplay_after_elimination(game)
+                spectator_result = _solo_autoplay_after_elimination(game)
+                result_text += "👁️ <b>KUZATUVCHI REJIMI</b>\\n" + spectator_result + "\\n\\n"
                 winner = game.get("winner")
             else:
                 winner = _solo_winner(game)
