@@ -1,4 +1,8 @@
 import logging
+import os
+import threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -10,6 +14,7 @@ from app.database import dispose_engine
 from app.handlers.admin import router as admin_router
 from app.handlers.features import router as features_router
 from app.handlers.gameplay import router as gameplay_router
+from app.handlers.miniapp import router as miniapp_router
 from app.handlers.payments import router as payments_router
 from app.handlers.rooms import router as rooms_router
 from app.handlers.social import router as social_router
@@ -23,10 +28,40 @@ def configure_logging(level: str) -> None:
     )
 
 
+def start_web_server() -> ThreadingHTTPServer:
+    web_root = Path(__file__).resolve().parent.parent / "webapp"
+
+    class MiniAppHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(web_root), **kwargs)
+
+        def do_GET(self):
+            if self.path in {"/health", "/healthz"}:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok","service":"MafiaUzBot"}')
+                return
+            if self.path == "/":
+                self.path = "/index.html"
+            return super().do_GET()
+
+        def log_message(self, format, *args):
+            logging.getLogger("miniapp.http").info(format, *args)
+
+    port = int(os.environ.get("PORT", "8080"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), MiniAppHandler)
+    thread = threading.Thread(target=server.serve_forever, name="miniapp-http", daemon=True)
+    thread.start()
+    logging.getLogger(__name__).info("MafiaUz Mini App web server listening on port %s", port)
+    return server
+
+
 async def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
     logger = logging.getLogger(__name__)
+    web_server = start_web_server()
 
     bot = Bot(
         token=settings.bot_token.get_secret_value(),
@@ -34,6 +69,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(miniapp_router)
     dispatcher.include_router(admin_router)
     dispatcher.include_router(payments_router)
     dispatcher.include_router(social_router)
@@ -55,6 +91,8 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=False)
         await dispatcher.start_polling(bot, close_bot_session=False)
     finally:
+        web_server.shutdown()
+        web_server.server_close()
         await bot.session.close()
         await dispose_engine()
         logger.info("MafiaUzBot polling stopped")
