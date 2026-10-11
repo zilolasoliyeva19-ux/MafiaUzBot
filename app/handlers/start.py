@@ -3,6 +3,8 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.keyboards import main_menu_keyboard
+from app.database import SessionFactory
+from app.services.rooms import register_user
 
 router = Router(name="start")
 
@@ -41,6 +43,17 @@ RULES_TEXT = (
 
 @router.message(CommandStart())
 async def start_handler(message: Message) -> None:
+    if message.from_user is not None:
+        user = message.from_user
+        display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+        async with SessionFactory() as session:
+            async with session.begin():
+                await register_user(
+                    session,
+                    user.id,
+                    user.username,
+                    display_name or user.full_name,
+                )
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
 
 
@@ -70,13 +83,8 @@ async def planned_feature_handler(message: Message) -> None:
     )
 
 
-@router.message(Command("play"))
-@router.message(Command("create"))
-@router.message(Command("join"))
 @router.message(Command("profile"))
 @router.message(Command("leaderboard"))
-@router.message(Command("leave"))
-@router.message(lambda message: message.text in {"🎮 O‘yin o‘ynash", "🏠 Xona yaratish", "🚪 Xonaga qo‘shilish"})
 async def upcoming_gameplay_handler(message: Message) -> None:
     await message.answer(
         "🚧 Bu funksiya hali ishlab chiqilmoqda. Hozircha menyu, yordam va qoidalar bo‘limlari ishlaydi. "
