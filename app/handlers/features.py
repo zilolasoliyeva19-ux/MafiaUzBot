@@ -209,11 +209,25 @@ async def shop_owned(callback: CallbackQuery) -> None:
     await callback.answer("Bu buyum sizda bor.")
 
 
-def _solo_keyboard(game: dict) -> InlineKeyboardMarkup:
+def _solo_keyboard(game: dict, mode: str = "inspect") -> InlineKeyboardMarkup:
+    action = "inspect" if mode == "inspect" else "vote"
+    label = "🔎 Tekshirish" if mode == "inspect" else "🗳️ Ovoz berish"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🗳️ {bot['name']}ni ayblash", callback_data=f"solo:vote:{i}") ]
+        [InlineKeyboardButton(
+            text=f"{label}: {bot['name']}",
+            callback_data=f"solo:{action}:{i}",
+        )]
         for i, bot in enumerate(game["bots"]) if bot["alive"]
     ])
+
+
+def _solo_alive(game: dict) -> list[dict]:
+    return [bot for bot in game["bots"] if bot["alive"]]
+
+
+def _solo_finish(game: dict, won: bool) -> None:
+    game["status"] = "won" if won else "lost"
+    game["phase"] = "finished"
 
 
 @router.message(Command("solo"))
@@ -223,19 +237,93 @@ async def solo_start(message: Message) -> None:
         return
     names = ["Ali", "Madina", "Jasur", "Malika", "Bekzod", "Dilnoza"]
     random.shuffle(names)
-    bots = [{"name": names[i], "role": "mafia" if i == 0 else ("doctor" if i == 1 else "citizen"), "alive": True} for i in range(4)]
-    random.shuffle(bots)
-    game = {"bots": bots, "round": 1, "status": "active"}
+    roles = ["mafia", "doctor", "citizen", "citizen"]
+    random.shuffle(roles)
+    bots = [
+        {"name": names[i], "role": roles[i], "alive": True}
+        for i in range(4)
+    ]
+    game = {
+        "bots": bots,
+        "round": 1,
+        "status": "active",
+        "phase": "inspect",
+        "inspected_round": 0,
+        "night_log": "",
+    }
     async with get_session_factory()() as session:
         async with session.begin():
             await _ensure_user(session, message.from_user)
             await _set_value(session, f"u:{message.from_user.id}:solo", json.dumps(game))
     await message.answer(
-        "🤖 <b>Solo Game boshlandi!</b>\n\n"
-        "Siz — 🕵️ <b>Detektiv</b>. 4 ta AI bot orasida 1 ta mafiya bor.\n"
-        "Botlardan birini tanlab, kim mafiya ekanini toping. To‘g‘ri topsangiz +50 🪙, aks holda o‘yin tugaydi.",
-        reply_markup=_solo_keyboard(game),
+        "🤖 <b>SOLO MAFIA — 1-kecha</b>\n\n"
+        "Siz — 🕵️ <b>Detektiv</b>. Shaharda 4 gumondor bor: ular orasida mafiya, "
+        "shifokor va 2 fuqaro yashiringan.\n\n"
+        "🌙 <b>TUN:</b> bittasini tekshiring. Keyin mafiya hujum qiladi, "
+        "shifokor esa kimnidir qutqarishga urinadi.\n"
+        "☀️ <b>KUN:</b> dalilingizga qarab ovoz bering. Mafiya topilsa yutasiz; "
+        "fuqaroni ayblasangiz o‘yin davom etadi.",
+        reply_markup=_solo_keyboard(game, "inspect"),
     )
+
+
+@router.callback_query(F.data.startswith("solo:inspect:"))
+async def solo_inspect(callback: CallbackQuery) -> None:
+    try:
+        index = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("Tanlov noto‘g‘ri.", show_alert=True)
+        return
+
+    async with get_session_factory()() as session:
+        async with session.begin():
+            raw = await _get_value(session, f"u:{callback.from_user.id}:solo", "")
+            if not raw:
+                await callback.answer("Avval Solo Game boshlang.", show_alert=True)
+                return
+            game = json.loads(raw)
+            if game.get("status") != "active" or game.get("phase") != "inspect":
+                await callback.answer("Hozir tekshirish mumkin emas.", show_alert=True)
+                return
+            alive = _solo_alive(game)
+            if index not in range(len(game["bots"])) or not game["bots"][index]["alive"]:
+                await callback.answer("Bu gumondor o‘yinda emas.", show_alert=True)
+                return
+            if game.get("inspected_round") == game["round"]:
+                await callback.answer("Bu kecha allaqachon tekshirgansiz.", show_alert=True)
+                return
+
+            target = game["bots"][index]
+            clue = "🚨 NATIJA: bu odam — MAFIYA!" if target["role"] == "mafia" else (
+                "🩺 NATIJA: bu odam — SHIFOKOR." if target["role"] == "doctor"
+                else "✅ NATIJA: bu odam oddiy FUQARO."
+            )
+            game["inspected_round"] = game["round"]
+
+            mafia = next((bot for bot in alive if bot["role"] == "mafia"), None)
+            doctor = next((bot for bot in alive if bot["role"] == "doctor"), None)
+            night_note = ""
+            if mafia:
+                victims = [bot for bot in alive if bot["role"] != "mafia"]
+                if victims:
+                    victim = random.choice(victims)
+                    saved = doctor is not None and random.random() < 0.65
+                    if saved:
+                        night_note = "🩺 Shifokor mafiya hujumini qaytardi — bu kecha hech kim o‘lmadi."
+                    else:
+                        victim["alive"] = False
+                        night_note = f"💀 Tongda {victim['name']} o‘lik holda topildi."
+            game["night_log"] = night_note
+            game["phase"] = "vote"
+            await _set_value(session, f"u:{callback.from_user.id}:solo", json.dumps(game))
+
+    if callback.message:
+        await callback.message.edit_text(
+            f"🌙 <b>Detektiv tekshiruvi</b>\n{target['name']}:\n{clue}\n\n"
+            f"{night_note}\n\n☀️ <b>KUN:</b> tirik gumondorlardan biriga ovoz bering.",
+            reply_markup=_solo_keyboard(game, "vote"),
+        )
+    await callback.answer("Tekshiruv yakunlandi.")
 
 
 @router.callback_query(F.data.startswith("solo:vote:"))
@@ -245,6 +333,7 @@ async def solo_vote(callback: CallbackQuery) -> None:
     except ValueError:
         await callback.answer("Tanlov noto‘g‘ri.", show_alert=True)
         return
+
     async with get_session_factory()() as session:
         async with session.begin():
             user = await session.get(User, callback.from_user.id)
@@ -253,23 +342,62 @@ async def solo_vote(callback: CallbackQuery) -> None:
                 await callback.answer("Avval yangi Solo Game boshlang.", show_alert=True)
                 return
             game = json.loads(raw)
-            if game.get("status") != "active" or index not in range(len(game["bots"])) or not game["bots"][index]["alive"]:
-                await callback.answer("Bu o‘yin tugagan yoki tanlov yaroqsiz.", show_alert=True)
+            if game.get("status") != "active" or game.get("phase") != "vote":
+                await callback.answer("Hozir ovoz berish mumkin emas.", show_alert=True)
                 return
+            if index not in range(len(game["bots"])) or not game["bots"][index]["alive"]:
+                await callback.answer("Bu gumondor tirik emas yoki tanlov noto‘g‘ri.", show_alert=True)
+                return
+
             chosen = game["bots"][index]
-            user.games_played += 1
+            lines = [f"🗳️ Siz {chosen['name']}ga ovoz berdingiz."]
+            chosen["alive"] = False
             if chosen["role"] == "mafia":
+                _solo_finish(game, True)
+                user.games_played += 1
                 user.wins += 1
                 coins = await _coins(session, user.telegram_id) + 50
                 await _set_value(session, f"u:{user.telegram_id}:coins", str(coins))
-                game["status"] = "won"
-                result = f"🎉 To‘g‘ri! {chosen['name']} mafiya edi. Siz yutdingiz va +50 🪙 oldingiz."
+                lines.append("🎉 <b>G‘ALABA!</b> Siz mafiya boshlig‘ini topdingiz. +50 🪙")
             else:
-                user.losses += 1
-                game["status"] = "lost"
-                mafia = next(bot for bot in game["bots"] if bot["role"] == "mafia")
-                result = f"😵 Noto‘g‘ri! {chosen['name']} {chosen['role']} edi. Mafi ya {mafia['name']} bo‘lgan."
+                lines.append(f"⚖️ {chosen['name']} — {chosen['role'].upper()}. Siz noto‘g‘ri ovoz berdingiz.")
+                mafia = next((bot for bot in _solo_alive(game) if bot["role"] == "mafia"), None)
+                if mafia:
+                    alive = _solo_alive(game)
+                    non_mafia = [bot for bot in alive if bot["role"] != "mafia"]
+                    if len(non_mafia) <= 1:
+                        _solo_finish(game, False)
+                        user.games_played += 1
+                        user.losses += 1
+                        lines.append(f"💀 <b>MAFIYA YUTDI!</b> Mafiya — {mafia['name']}.")
+                    else:
+                        victims = [bot for bot in alive if bot["role"] != "mafia"]
+                        doctor = next((bot for bot in alive if bot["role"] == "doctor"), None)
+                        victim = random.choice(victims)
+                        if doctor is not None and random.random() < 0.65:
+                            lines.append("🩺 Shifokor tun hujumini qaytardi. Hech kim o‘lmadi.")
+                        else:
+                            victim["alive"] = False
+                            lines.append(f"🌙 Kechasi {victim['name']} mafiya hujumida halok bo‘ldi.")
+                            remaining = _solo_alive(game)
+                            remaining_non_mafia = [bot for bot in remaining if bot["role"] != "mafia"]
+                            if len(remaining_non_mafia) <= 1:
+                                _solo_finish(game, False)
+                                user.games_played += 1
+                                user.losses += 1
+                                lines.append(f"💀 <b>MAFIYA YUTDI!</b> Mafiya — {mafia['name']}.")
+                if game["status"] == "active":
+                    game["round"] += 1
+                    game["phase"] = "inspect"
+                    lines.append(f"\n🌅 <b>{game['round']}-kecha boshlandi.</b> Yangi gumondorni tekshiring.")
             await _set_value(session, f"u:{user.telegram_id}:solo", json.dumps(game))
+
     if callback.message:
-        await callback.message.edit_text(result + "\n\nYana o‘ynash uchun 🤖 Solo Game tugmasini bosing.", reply_markup=None)
-    await callback.answer("Natija tayyor.")
+        await callback.message.edit_text(
+            "\n".join(lines) + (
+                "\n\n🤖 Yana o‘ynash uchun Solo Game tugmasini bosing."
+                if game["status"] != "active" else ""
+            ),
+            reply_markup=_solo_keyboard(game, "inspect") if game["status"] == "active" else None,
+        )
+    await callback.answer("Ovoz hisoblandi.")
