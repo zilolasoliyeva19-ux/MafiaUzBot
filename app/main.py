@@ -30,7 +30,7 @@ async def main() -> None:
 
     @dispatcher.error()
     async def on_error(event: ErrorEvent) -> bool:
-        logger.exception("Telegram update handler failed", exc_info=event.exception)
+        logger.error(\n            "Telegram update handler failed",\n            exc_info=(type(event.exception), event.exception, event.exception.__traceback__),\n        )
         return True
 
     try:
