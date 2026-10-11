@@ -303,7 +303,90 @@ def _solo_finish(game: dict, winner: str) -> None:
     game["winner"] = winner
 
 
-def _solo_role_label(role: str) -> str:
+
+def _solo_autoplay_after_elimination(game: dict) -> str:
+    """Continue the bot-only match after the human player is eliminated."""
+    narration = ["👁️ Siz o‘yindan chiqdingiz. Endi qolgan o‘yinchilar avtomatik davom etadi."]
+    for _ in range(40):
+        alive = _solo_alive(game)
+        winner = _solo_winner(game)
+        if winner:
+            _solo_finish(game, winner)
+            break
+        if len(alive) <= 1:
+            _solo_finish(game, "draw")
+            break
+
+        # Night: mafia and maniac attack; doctor/bodyguard may protect one target.
+        attacks = []
+        mafia = [p for p in alive if p["role"] in {"mafia", "don"}]
+        mafia_targets = [p for p in alive if _solo_team(p["role"]) != "mafia"]
+        if mafia and mafia_targets:
+            attacks.append((random.choice(mafia_targets), "mafia"))
+        maniacs = [p for p in alive if p["role"] == "maniac"]
+        maniac_targets = [p for p in alive if p["role"] != "maniac"]
+        if maniacs and maniac_targets:
+            attacks.append((random.choice(maniac_targets), "maniac"))
+        protectors = [p for p in alive if p["role"] in {"doctor", "bodyguard"}]
+        protected = random.choice(alive) if protectors and random.random() < 0.65 else None
+        killed = set()
+        for target, source in attacks:
+            if protected and target["id"] == protected["id"]:
+                narration.append(f"🛡️ {target['name']} hujumdan qutuldi.")
+            elif target["id"] not in killed:
+                target["alive"] = False
+                killed.add(target["id"])
+                narration.append(f"🌙 {target['name']} ({_solo_role_label(target['role'])}) tunda chiqib ketdi.")
+
+        winner = _solo_winner(game)
+        if winner:
+            _solo_finish(game, winner)
+            break
+
+        # Day vote among surviving bots.
+        alive = _solo_alive(game)
+        tally = {p["id"]: 0 for p in alive}
+        for voter in alive:
+            choices = [p for p in alive if p["id"] != voter["id"]]
+            if not choices:
+                continue
+            if _solo_team(voter["role"]) == "mafia":
+                preferred = [p for p in choices if _solo_team(p["role"]) != "mafia"]
+            elif voter["role"] == "maniac":
+                preferred = [p for p in choices if p["role"] != "maniac"]
+            else:
+                preferred = [p for p in choices if _solo_team(p["role"]) == "mafia"]
+            pool = preferred if preferred and random.random() < 0.7 else choices
+            tally[random.choice(pool)["id"]] += 1
+        if tally:
+            high = max(tally.values())
+            leaders = [p for p in alive if tally[p["id"]] == high]
+            if len(leaders) == 1 and random.random() < 0.82:
+                nominee = leaders[0]
+                nominee["alive"] = False
+                narration.append(f"🗳️ Ovoz bilan {nominee['name']} ({_solo_role_label(nominee['role'])}) chiqarildi.")
+            else:
+                narration.append("🗳️ Ovozlar tenglashdi, hech kim chiqarilmadi.")
+
+        winner = _solo_winner(game)
+        if winner:
+            _solo_finish(game, winner)
+            break
+        game["round"] = int(game.get("round", 1)) + 1
+    if game.get("status") != "finished":
+        _solo_finish(game, "draw")
+    winner = game.get("winner", "draw")
+    narration.append({
+        "town": "🏙️ Shahar g‘alaba qozondi!",
+        "mafia": "🔪 Mafiya g‘alaba qozondi!",
+        "maniac": "🪓 Manyak g‘alaba qozondi!",
+        "draw": "🤝 O‘yin durang bilan tugadi.",
+    }.get(winner, "O‘yin tugadi."))
+    game["spectator_log"] = narration
+    return "\\n".join(narration)
+
+
+def _solo_role_label(role: str):
     emoji, name, _ = SOLO_ROLE_INFO[role]
     return f"{emoji} {name}"
 
@@ -516,8 +599,10 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
-                winner = "town" if _solo_team(player["role"]) == "mafia" else "mafia"
-            if winner:
+                spectator_result = _solo_autoplay_after_elimination(game)
+                winner = game.get("winner")
+                result_text += ("\\n\\n" if result_text else "") + "👁️ <b>KUZATUVCHI REJIMI</b>\\n" + spectator_result
+            elif winner:
                 _solo_finish(game, winner)
             else:
                 game["phase"] = "vote"
@@ -710,16 +795,8 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 result_text += "🕊️ <b>DISLIKE KO‘P.</b> Sudlanuvchi ozod qilindi."
 
             if target_is_player and hanged:
-                winner = _solo_winner(game)
-                if not winner:
-                    alive_roles = [p["role"] for p in _solo_alive(game)]
-                    if any(role in {"mafia", "don"} for role in alive_roles):
-                        winner = "mafia"
-                    elif "maniac" in alive_roles:
-                        winner = "maniac"
-                    else:
-                        winner = "town"
-                _solo_finish(game, winner)
+                _solo_autoplay_after_elimination(game)
+                winner = game.get("winner")
             else:
                 winner = _solo_winner(game)
                 if winner:
