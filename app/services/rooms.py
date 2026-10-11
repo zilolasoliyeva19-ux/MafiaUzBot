@@ -170,7 +170,8 @@ async def leave_room(session: AsyncSession, user_id: int, room_id: int | None = 
         raise RoomError("Siz chiqishingiz mumkin bo‘lgan kutish xonasida emassiz.")
 
     participant, room = result
-    session.delete(participant)
+    await session.delete(participant)
+    await session.flush()
     remaining = list(
         (
             await session.scalars(
