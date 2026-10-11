@@ -13,14 +13,20 @@ router = Router(name="social")
 
 
 @router.message(Command("lastwords"))
+@router.message(Command("skip"))
 async def last_words(message: Message) -> None:
     if not message.from_user:
         return
+    command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower()
+    is_skip = command == "/skip"
     body = (message.text or "").partition(" ")[2].strip()
-    if not body:
-        await message.answer("Oxirgi so‘zingizni yozing: <code>/lastwords Men sizlarni unutmayman...</code>")
+    if not is_skip and not body:
+        await message.answer(
+            "🕯️ Oxirgi so‘zingizni <code>/lastwords Matn</code> bilan yuboring. "
+            "Yozishni istamasangiz, <code>/skip</code> yuboring."
+        )
         return
-    if len(body) > 300:
+    if not is_skip and len(body) > 300:
         await message.answer("Oxirgi so‘z 300 belgidan oshmasin.")
         return
 
@@ -46,11 +52,15 @@ async def last_words(message: Message) -> None:
                         break
             if found:
                 row, game, player = found
-                game.setdefault("last_words", {})[str(uid)] = body
+                saved_body = "⏭️ Oxirgi so‘zdan voz kechdi." if is_skip else body
+                game.setdefault("last_words", {})[str(uid)] = saved_body
                 row.value = json.dumps(game, ensure_ascii=False)
                 recipients = [p.get("id") for p in game.get("players", []) if p.get("id")]
                 name = escape(player.get("name", "O‘yinchi"))
-                announcement = f"🕯️ <b>{name}ning oxirgi so‘zi:</b>\n{escape(body)}"
+                announcement = (
+                    f"⏭️ <b>{name}</b> oxirgi so‘z aytmaslikni tanladi."
+                    if is_skip else f"🕯️ <b>{name}ning oxirgi so‘zi:</b>\n{escape(body)}"
+                )
             else:
                 solo_raw = await session.get(BotSetting, f"u:{uid}:solo")
                 solo_game = None
@@ -61,9 +71,12 @@ async def last_words(message: Message) -> None:
                         pass
                 solo_player = next((p for p in solo_game.get("bots", []) if p.get("is_player")), None) if solo_game else None
                 if solo_player and not solo_player.get("alive", True):
-                    solo_game["last_words"] = body
+                    solo_game["last_words"] = "⏭️ Oxirgi so‘zdan voz kechdi." if is_skip else body
                     solo_raw.value = json.dumps(solo_game, ensure_ascii=False)
-                    await message.answer("🕯️ Oxirgi so‘zingiz Solo o‘yin tarixiga saqlandi. Siz kuzatuvchi rejimidasiz.")
+                    await message.answer(
+                        "⏭️ Oxirgi so‘zdan voz kechildi. Kuzatuv rejimi davom etadi."
+                        if is_skip else "🕯️ Oxirgi so‘zingiz Solo o‘yin tarixiga saqlandi. Siz kuzatuvchi rejimidasiz."
+                    )
                     return
                 await message.answer("🕯️ Oxirgi so‘z faqat o‘yindan chiqqaningizdan keyin yoziladi.")
                 return
@@ -74,4 +87,7 @@ async def last_words(message: Message) -> None:
             delivered += 1
         except Exception:
             pass
-    await message.answer(f"🕯️ Oxirgi so‘zingiz yuborildi ({delivered} o‘yinchiga). Siz tirik qolganlar o‘yinini kuzatishingiz mumkin.")
+    await message.answer(
+        f"⏭️ Oxirgi so‘zdan voz kechildi ({delivered} o‘yinchiga xabar berildi). Kuzatuv rejimi davom etadi."
+        if is_skip else f"🕯️ Oxirgi so‘zingiz yuborildi ({delivered} o‘yinchiga). Siz tirik qolganlar o‘yinini kuzatishingiz mumkin."
+    )
