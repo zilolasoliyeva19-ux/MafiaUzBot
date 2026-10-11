@@ -227,7 +227,8 @@ async def start_match(callback: CallbackQuery) -> None:
             await callback.bot.send_message(player["id"], f"🎭 <b>Sizning rolingiz:</b> {_role_name(player['role'])}\nXona: <code>{room.room_code}</code>{extra}\n\nRolingizni sir saqlang.")
         except Exception:
             pass
-    await _start_night(callback.bot, session, room, game)
+    async with session.begin():
+        await _start_night(callback.bot, session, room, game)
 
 
 @router.callback_query(F.data.startswith("game:night_"))
