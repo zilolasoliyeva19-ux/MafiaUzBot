@@ -34,6 +34,16 @@ class Settings(BaseSettings):
             return [int(item) for item in value]
         raise ValueError("ADMIN_IDS must be a comma-separated list of Telegram IDs")
 
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        value = value.strip()
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
+
     @field_validator("log_level")
     @classmethod
     def normalize_log_level(cls, value: str) -> str:
