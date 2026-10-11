@@ -1,6 +1,7 @@
 from html import escape
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
@@ -202,9 +203,16 @@ async def refresh_room_callback(callback: CallbackQuery) -> None:
         room_id = int((callback.data or "").rsplit(":", 1)[-1])
         async with get_session_factory()() as session:
             room, players = await get_room_snapshot(session, room_id)
-        await callback.answer("Xona yangilandi.")
         if callback.message and isinstance(callback.message, Message):
-            await callback.message.edit_text(room_text(room, players), reply_markup=room_keyboard(room_id))
+            try:
+                await callback.message.edit_text(
+                    room_text(room, players), reply_markup=room_keyboard(room_id)
+                )
+            except TelegramBadRequest as exc:
+                # Telegram raises this when the refreshed content is unchanged.
+                if "message is not modified" not in str(exc).lower():
+                    raise
+        await callback.answer("Xona yangilandi.")
     except RoomError as exc:
         await callback.answer(str(exc), show_alert=True)
     except Exception:
