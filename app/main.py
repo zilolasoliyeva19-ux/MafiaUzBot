@@ -6,8 +6,8 @@ from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
 from app.config import get_settings
-from app.handlers.start import router as start_router
 from app.handlers.rooms import router as rooms_router
+from app.handlers.start import router as start_router
 
 
 def configure_logging(level: str) -> None:
@@ -32,7 +32,11 @@ async def main() -> None:
 
     @dispatcher.error()
     async def on_error(event: ErrorEvent) -> bool:
-        logger.error(\n            "Telegram update handler failed",\n            exc_info=(type(event.exception), event.exception, event.exception.__traceback__),\n        )
+        exception = event.exception
+        logger.error(
+            "Telegram update handler failed",
+            exc_info=(type(exception), exception, exception.__traceback__),
+        )
         return True
 
     try:
