@@ -4,7 +4,7 @@ Uzbek (Latin-script) Telegram Mafia game bot built with Python 3.12+, aiogram 3,
 
 ## Status
 
-Development is staged. **Stages 1–2** establish the application structure, validated configuration, Uzbek menu, async SQLAlchemy models, initial Alembic migration, and starter tests/CI. Persistent room creation/join/leave handlers and starter service tests are now committed. Full game phases/roles, statistics, and the protected admin panel remain subsequent stages. Do not treat features as complete until their tests pass.
+Development is staged. **Stages 1–2** establish the application structure, validated configuration, Uzbek menu, async SQLAlchemy models, initial Alembic migration, and starter tests/CI. Persistent room creation/join/leave handlers and starter service tests are now committed. The role-assignment and core resolution helpers are now added with unit tests; connecting them to live match phases, night/day actions, and voting remains in progress. Statistics and the protected admin panel remain subsequent stages. Do not treat features as complete until their tests pass.
 
 ## Requirements
 
@@ -63,7 +63,7 @@ Optional: `REDIS_URL`, `LOG_LEVEL`, `DEFAULT_LANGUAGE`, `MIN_PLAYERS`, `MAX_PLAY
 1. Project structure, settings, Uzbek menu, startup/shutdown, tests — foundation committed.
 2. SQLAlchemy models and initial Alembic migration — schema committed; repositories and runtime wiring remain.
 3. User registration and persistent room creation/joining — initial handlers and service tests committed.
-4. Role assignment and game engine.
+4. Role assignment and core game rules — pure logic and tests committed; not yet wired to Telegram matches.
 5. Day/night transitions, actions, voting, and win conditions.
 6. Profiles, statistics, and leaderboard.
 7. Admin tools, audit logging, moderation.
