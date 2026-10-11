@@ -25,22 +25,11 @@ async def last_words(message: Message) -> None:
         return
 
     uid = message.from_user.id
-    solo_key = f"u:{uid}:solo"
+    recipients = []
+    announcement = ""
     async with get_session_factory()() as session:
         async with session.begin():
-            solo_raw = await session.get(BotSetting, solo_key)
-            if solo_raw:
-                try:
-                    solo_game = json.loads(solo_raw.value)
-                except (TypeError, json.JSONDecodeError):
-                    solo_game = None
-                solo_player = next((p for p in solo_game.get("bots", []) if p.get("is_player")), None) if solo_game else None
-                if solo_player and not solo_player.get("alive", True):
-                    solo_game["last_words"] = body
-                    solo_raw.value = json.dumps(solo_game, ensure_ascii=False)
-                    await message.answer("🕯️ Oxirgi so‘zingiz Solo o‘yin tarixiga saqlandi. Siz kuzatuvchi rejimidasiz.")
-                    return
-
+            # Prefer an active multiplayer game, so an old Solo result cannot intercept the command.
             rows = list((await session.scalars(
                 select(BotSetting).where(BotSetting.key.like("roomgame:%"))
             )).all())
@@ -52,19 +41,32 @@ async def last_words(message: Message) -> None:
                     continue
                 player = next((p for p in game.get("players", []) if p.get("id") == uid), None)
                 if player and not player.get("alive", True):
-                    found = (row, game)
+                    found = (row, game, player)
                     if game.get("status") == "active":
                         break
-            if not found:
+            if found:
+                row, game, player = found
+                game.setdefault("last_words", {})[str(uid)] = body
+                row.value = json.dumps(game, ensure_ascii=False)
+                recipients = [p.get("id") for p in game.get("players", []) if p.get("id")]
+                name = escape(player.get("name", "O‘yinchi"))
+                announcement = f"🕯️ <b>{name}ning oxirgi so‘zi:</b>\n{escape(body)}"
+            else:
+                solo_raw = await session.get(BotSetting, f"u:{uid}:solo")
+                solo_game = None
+                if solo_raw:
+                    try:
+                        solo_game = json.loads(solo_raw.value)
+                    except (TypeError, json.JSONDecodeError):
+                        pass
+                solo_player = next((p for p in solo_game.get("bots", []) if p.get("is_player")), None) if solo_game else None
+                if solo_player and not solo_player.get("alive", True):
+                    solo_game["last_words"] = body
+                    solo_raw.value = json.dumps(solo_game, ensure_ascii=False)
+                    await message.answer("🕯️ Oxirgi so‘zingiz Solo o‘yin tarixiga saqlandi. Siz kuzatuvchi rejimidasiz.")
+                    return
                 await message.answer("🕯️ Oxirgi so‘z faqat o‘yindan chiqqaningizdan keyin yoziladi.")
                 return
-            row, game = found
-            game.setdefault("last_words", {})[str(uid)] = body
-            row.value = json.dumps(game, ensure_ascii=False)
-            recipients = [p.get("id") for p in game.get("players", []) if p.get("id")]
-            player = next((p for p in game.get("players", []) if p.get("id") == uid), {})
-            name = escape(player.get("name", "O‘yinchi"))
-            announcement = f"🕯️ <b>{name}ning oxirgi so‘zi:</b>\n{escape(body)}"
     delivered = 0
     for recipient in recipients:
         try:
