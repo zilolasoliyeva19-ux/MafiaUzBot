@@ -7,6 +7,7 @@ from aiogram.types import ErrorEvent
 
 from app.config import get_settings
 from app.database import dispose_engine
+from app.handlers.features import router as features_router
 from app.handlers.rooms import router as rooms_router
 from app.handlers.start import router as start_router
 
@@ -29,6 +30,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(features_router)
     dispatcher.include_router(rooms_router)
 
     @dispatcher.error()
