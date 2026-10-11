@@ -17,7 +17,11 @@ router = Router(name="features")
 SHOP_ITEMS = {
     "lucky_charm": {"name": "🍀 Omad tumor", "price": 50, "description": "Solo o‘yinda bir marta qo‘shimcha imkoniyat."},
     "detective_badge": {"name": "🕵️ Detektiv nishoni", "price": 100, "description": "Profilingiz uchun maxsus nishon."},
-    "vip_frame": {"name": "👑 VIP ramka", "price": 150, "description": "Profilingiz uchun VIP bezak."},
+    "vip_frame": {"name": "👑 VIP ramka", "price": 250, "description": "Profilingiz uchun VIP bezak."},
+    "gold_badge": {"name": "🥇 Oltin nishon", "price": 300, "description": "Profilingiz uchun noyob kolleksiya buyumi."},
+    "neon_theme": {"name": "🌌 Neon mavzu", "price": 220, "description": "Profilingiz uchun neon uslubidagi kolleksiya."},
+    "ghost_emote": {"name": "👻 Arvoh emojisi", "price": 120, "description": "Inventaringiz uchun maxsus emojili buyum."},
+    "diamond_crown": {"name": "💎 Olmos toj", "price": 500, "description": "Shopdagi premium kolleksiya buyumi."},
 }
 
 
