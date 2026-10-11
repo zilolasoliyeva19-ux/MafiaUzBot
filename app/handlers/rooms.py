@@ -1,3 +1,5 @@
+import asyncio
+import time
 from html import escape
 
 from aiogram import F, Router
@@ -28,6 +30,200 @@ from app.services.rooms import (
 
 router = Router(name="rooms")
 
+
+
+GROUP_LOBBIES: dict[int, dict] = {}
+
+
+def group_game_keyboard(room_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎭 O‘yinga qo‘shilish", callback_data=f"groupgame:join:{room_id}")],
+        [InlineKeyboardButton(text="🔄 Ishtirokchilarni yangilash", callback_data=f"groupgame:refresh:{room_id}")],
+    ])
+
+
+def group_lobby_text(room: GameRoom, players: list, seconds_left: int) -> str:
+    lines = []
+    for player in players:
+        crown = " 👑" if player.telegram_id == room.owner_id else ""
+        lines.append(f"• {escape(player.display_name)}{crown}")
+    roster = "\\n".join(lines) or "Hali hech kim qo‘shilmadi"
+    minutes, seconds = divmod(max(0, seconds_left), 60)
+    count = len(players)
+    status = "✅ Yetarli o‘yinchi yig‘ildi" if count >= room.min_players else f"⏳ Kamida {room.min_players} kishi kerak"
+    return (
+        "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\\n"
+        "━━━━━━━━━━━━━━━━━━\\n"
+        f"🏠 Xona: <code>{escape(room.room_code)}</code>\\n"
+        f"👥 O‘yinchilar: <b>{count}/{room.max_players}</b>\\n"
+        f"⏱️ Boshlanishigacha: <b>{minutes}:{seconds:02d}</b>\\n"
+        f"{status}\\n\\n"
+        "<b>Stol atrofida:</b>\\n" + roster + "\\n\\n"
+        "👇 Quyidagi tugmani bosib o‘yinga qo‘shiling.\\n"
+        "🔐 Rollar o‘yin boshlanganda botning shaxsiy chatida yuboriladi. Botni avval /start bilan ochib qo‘ying."
+    )
+
+
+async def _group_game_countdown(bot, room_id: int) -> None:
+    lobby = GROUP_LOBBIES.get(room_id)
+    if not lobby:
+        return
+    try:
+        while True:
+            remaining = int(max(0, lobby["deadline"] - time.monotonic()))
+            async with get_session_factory()() as session:
+                room, players = await get_room_snapshot(session, room_id)
+                if room.status != "lobby":
+                    return
+                count = len(players)
+            try:
+                await bot.edit_message_text(
+                    chat_id=lobby["chat_id"],
+                    message_id=lobby["message_id"],
+                    text=group_lobby_text(room, players, remaining),
+                    reply_markup=group_game_keyboard(room_id),
+                )
+            except TelegramBadRequest as exc:
+                if "message is not modified" not in str(exc).lower():
+                    raise
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(15, remaining))
+
+        async with get_session_factory()() as session:
+            room, players = await get_room_snapshot(session, room_id)
+            count = len(players)
+        if count < room.min_players:
+            async with get_session_factory()() as session:
+                async with session.begin():
+                    locked = await session.get(GameRoom, room_id, with_for_update=True)
+                    if locked and locked.status == "lobby":
+                        locked.status = "cancelled"
+            await bot.edit_message_text(
+                chat_id=lobby["chat_id"],
+                message_id=lobby["message_id"],
+                text=(
+                    "⌛ <b>Vaqt tugadi!</b>\\n\\n"
+                    f"O‘yinni boshlash uchun kamida <b>{room.min_players} kishi</b> kerak edi, "
+                    f"ammo {count} kishi yig‘ildi. Yangi /game bilan qayta boshlashingiz mumkin."
+                ),
+            )
+            return
+
+        from app.handlers.gameplay import start_room_game
+        ok, result = await start_room_game(bot, room_id)
+        await bot.edit_message_text(
+            chat_id=lobby["chat_id"],
+            message_id=lobby["message_id"],
+            text=result if ok else f"⚠️ {escape(result)}",
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Group game countdown failed for room %s", room_id)
+        try:
+            await bot.send_message(lobby["chat_id"], "⚠️ O‘yinni avtomatik boshlashda xatolik yuz berdi. /game bilan qayta urinib ko‘ring.")
+        except Exception:
+            pass
+    finally:
+        GROUP_LOBBIES.pop(room_id, None)
+
+
+@router.message(Command("game"))
+async def group_game_handler(message: Message) -> None:
+    if not message.chat or message.chat.type not in {"group", "supergroup"}:
+        await message.answer("👥 /game buyrug‘ini guruh chatida yuboring. Mini App’da esa Solo rejimni ochishingiz mumkin.")
+        return
+    if message.from_user is None:
+        return
+    try:
+        async with get_session_factory()() as session:
+            async with session.begin():
+                user = message.from_user
+                display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+                await register_user(session, user.id, user.username, display_name or user.full_name)
+                settings = get_settings()
+                room = await create_room(
+                    session, user.id, is_public=True, min_players=4,
+                    max_players=max(4, settings.max_players),
+                )
+                room_id, room_code = room.id, room.room_code
+        lobby_message = await message.answer(
+            "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\\n\\nXona tayyorlanmoqda…",
+            reply_markup=group_game_keyboard(room_id),
+        )
+        GROUP_LOBBIES[room_id] = {
+            "chat_id": message.chat.id,
+            "message_id": lobby_message.message_id,
+            "deadline": time.monotonic() + 90,
+        }
+        async with get_session_factory()() as session:
+            room, players = await get_room_snapshot(session, room_id)
+        await lobby_message.edit_text(
+            group_lobby_text(room, players, 90),
+            reply_markup=group_game_keyboard(room_id),
+        )
+        GROUP_LOBBIES[room_id]["task"] = asyncio.create_task(
+            _group_game_countdown(message.bot, room_id),
+            name=f"mafia-group-countdown-{room_id}",
+        )
+    except RoomError as exc:
+        await message.answer(f"⚠️ {escape(str(exc))}")
+    except Exception:
+        await message.answer("❌ Guruh xonasini yaratib bo‘lmadi. Keyinroq qayta urinib ko‘ring.")
+        raise
+
+
+@router.callback_query(F.data.startswith("groupgame:join:"))
+async def group_game_join(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.message is None:
+        await callback.answer("Foydalanuvchini aniqlab bo‘lmadi.", show_alert=True)
+        return
+    try:
+        room_id = int((callback.data or "").rsplit(":", 1)[-1])
+        async with get_session_factory()() as session:
+            async with session.begin():
+                room = await session.get(GameRoom, room_id, with_for_update=True)
+                if room is None or room.status != "lobby":
+                    await callback.answer("Bu xona endi o‘yinchilarni qabul qilmaydi.", show_alert=True)
+                    return
+                user = callback.from_user
+                display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+                await register_user(session, user.id, user.username, display_name or user.full_name)
+                await join_room(session, user.id, room.room_code)
+        async with get_session_factory()() as session:
+            room, players = await get_room_snapshot(session, room_id)
+        lobby = GROUP_LOBBIES.get(room_id, {})
+        remaining = int(max(0, lobby.get("deadline", time.monotonic()) - time.monotonic()))
+        await callback.message.edit_text(
+            group_lobby_text(room, players, remaining),
+            reply_markup=group_game_keyboard(room_id),
+        )
+        await callback.answer("Siz o‘yinga qo‘shildingiz! 🎭")
+    except RoomError as exc:
+        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        await callback.answer("Xonaga qo‘shilib bo‘lmadi.", show_alert=True)
+        raise
+
+
+@router.callback_query(F.data.startswith("groupgame:refresh:"))
+async def group_game_refresh(callback: CallbackQuery) -> None:
+    try:
+        room_id = int((callback.data or "").rsplit(":", 1)[-1])
+        async with get_session_factory()() as session:
+            room, players = await get_room_snapshot(session, room_id)
+        lobby = GROUP_LOBBIES.get(room_id, {})
+        remaining = int(max(0, lobby.get("deadline", time.monotonic()) - time.monotonic()))
+        if callback.message:
+            await callback.message.edit_text(
+                group_lobby_text(room, players, remaining),
+                reply_markup=group_game_keyboard(room_id) if room.status == "lobby" else None,
+            )
+        await callback.answer("Yangilandi.")
+    except RoomError as exc:
+        await callback.answer(str(exc), show_alert=True)
 
 def room_keyboard(room_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
