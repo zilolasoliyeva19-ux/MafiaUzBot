@@ -26,7 +26,7 @@ HELP_TEXT = (
     "/profile — profilingiz\n"
     "/leaderboard — reyting\n"
     "/leave — kutish xonasidan chiqish\n\n"
-    "Xona va o‘yin funksiyalari bosqichma-bosqich qo‘shilmoqda."
+    "Xonalar yaratish va ularga qo‘shilish uchun menyudan foydalaning. O‘yin bosqichlari keyingi yangilanishlarda ulanadi."
 )
 
 RULES_TEXT = (
