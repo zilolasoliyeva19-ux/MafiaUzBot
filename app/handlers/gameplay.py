@@ -1,5 +1,6 @@
 import json
 import random
+from html import escape
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -307,6 +308,12 @@ async def day_vote(callback: CallbackQuery) -> None:
                 return
             game["actions"][str(actor_id)] = {"type": "vote", "target": target_id}
             await _save(session, f"roomgame:{room_id}", game)
+            vote_notice = (
+                f"🗳️ <b>{escape(actor['name'])}</b> ovoz berdi: "
+                f"<b>{escape(target['name'])}</b>."
+            )
+            # Announce each vote before the final tally, so players see who voted for whom.
+            await _tell_all(callback.bot, game, vote_notice)
             alive = [p for p in game["players"] if p["alive"]]
             if all(str(p["id"]) in game["actions"] for p in alive):
                 votes = Counter(a["target"] for a in game["actions"].values() if a.get("type") == "vote")
