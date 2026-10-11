@@ -184,6 +184,51 @@ async def _start_day(bot, session, room: GameRoom, game: dict, killed: int | Non
             pass
 
 
+async def start_room_game(bot, room_id: int) -> tuple[bool, str]:
+    """Start a lobby from either the owner's button or the group countdown."""
+    async with get_session_factory()() as session:
+        async with session.begin():
+            room = await session.get(GameRoom, room_id, with_for_update=True)
+            if room is None:
+                return False, "Xona topilmadi."
+            if room.status != "lobby":
+                return False, "Bu xona allaqachon boshlangan yoki yopilgan."
+            rows = await _players(session, room_id)
+            if len(rows) < room.min_players:
+                return False, f"O‘yinni boshlash uchun kamida {room.min_players} kishi kerak. Hozir: {len(rows)}."
+            random.shuffle(rows)
+            roles = _role_plan(len(rows))
+            random.shuffle(roles)
+            game_players = []
+            for (participant, user), role in zip(rows, roles):
+                participant.role = role
+                participant.is_alive = True
+                game_players.append({"id": user.telegram_id, "name": user.display_name, "role": role, "alive": True})
+            match = GameMatch(room_id=room.id, status="active", phase="night")
+            session.add(match)
+            room.status = "active"
+            room_code = room.room_code
+            game = {"room_id": room.id, "match_id": None, "phase": "night", "round": 1, "status": "active", "actions": {}, "players": game_players}
+            await session.flush()
+            game["match_id"] = match.id
+            await _save(session, f"roomgame:{room.id}", game)
+
+    for player in game_players:
+        extra = "\\nMafiya jamoadoshlari: " + ", ".join(p["name"] for p in game_players if p["role"] == MAFIA and p["id"] != player["id"]) if player["role"] == MAFIA else ""
+        try:
+            await bot.send_message(player["id"], f"🎭 <b>Sizning rolingiz:</b> {_role_name(player['role'])}\\nXona: <code>{room_code}</code>{extra}\\n\\nRolingizni sir saqlang.")
+        except Exception:
+            pass
+
+    async with get_session_factory()() as session:
+        async with session.begin():
+            room = await session.get(GameRoom, room_id, with_for_update=True)
+            game = await _load(session, f"roomgame:{room_id}")
+            if room is None or not game or game.get("status") != "active":
+                return False, "O‘yin holatini yuklab bo‘lmadi."
+            await _start_night(bot, session, room, game)
+    return True, f"🎭 <b>Mafia o‘yini boshlandi!</b>\\nXona: <code>{room_code}</code>\\nRollar shaxsiy xabarlarga yuborildi."
+
 @router.callback_query(F.data.startswith("game:start:"))
 async def start_match(callback: CallbackQuery) -> None:
     if not callback.from_user:
