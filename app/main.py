@@ -14,6 +14,7 @@ from app.database import dispose_engine
 from app.handlers.admin import router as admin_router
 from app.handlers.features import router as features_router
 from app.handlers.gameplay import router as gameplay_router
+from app.handlers.inline import router as inline_router
 from app.handlers.miniapp import router as miniapp_router
 from app.handlers.payments import router as payments_router
 from app.handlers.rooms import router as rooms_router
@@ -69,6 +70,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(inline_router)
     dispatcher.include_router(miniapp_router)
     dispatcher.include_router(admin_router)
     dispatcher.include_router(payments_router)
