@@ -167,6 +167,11 @@ async def _start_day(bot, session, room: GameRoom, game: dict, killed: int | Non
     alive = [p for p in game["players"] if p["alive"]]
     news += "\nMuhokama qiling, so‘ng kimni chiqarishni ovoz bilan tanlang."
     await _tell_all(bot, game, news)
+    if killed is not None and not saved:
+        try:
+            await bot.send_message(killed, "🕯️ Siz o‘yindan chiqdingiz. Istasangiz /lastwords buyrug‘i bilan oxirgi so‘zingizni yozing. Siz o‘yin natijalarini kuzatishda davom etasiz.")
+        except Exception:
+            pass
     for player in alive:
         try:
             await bot.send_message(
@@ -310,6 +315,10 @@ async def day_vote(callback: CallbackQuery) -> None:
                     eliminated_id = highest[0][0]
                     eliminated = next(p for p in game["players"] if p["id"] == eliminated_id)
                     eliminated["alive"] = False
+                    try:
+                        await callback.bot.send_message(eliminated_id, "🕯️ Siz ovoz bilan o‘yindan chiqdingiz. Istasangiz /lastwords buyrug‘i bilan oxirgi so‘zingizni yozing. O‘yin natijalarini kuzatishda davom etishingiz mumkin.")
+                    except Exception:
+                        pass
                     summary = f"⚖️ Ovoz natijasi: {eliminated['name']} o‘yindan chiqarildi. Rol: {_role_name(eliminated['role'])}."
                 else:
                     summary = "⚖️ Ovozlar teng. Hech kim o‘yindan chiqarilmadi."
