@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from aiogram import F, Router
@@ -7,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import get_session_factory
-from app.models import AdminAuditLog, GameMatch, GameRoom, User
+from app.models import AdminAuditLog, BotSetting, GameMatch, GameRoom, User
 
 router = Router(name="admin")
 
@@ -18,8 +19,19 @@ def _is_admin(user_id: int) -> bool:
 
 def _keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats")],
-        [InlineKeyboardButton(text="❔ Buyruqlar", callback_data="admin:help")],
+        [
+            InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats"),
+            InlineKeyboardButton(text="🎮 Faol o‘yinlar", callback_data="admin:rooms"),
+        ],
+        [
+            InlineKeyboardButton(text="🪙 Tangalar", callback_data="admin:coins"),
+            InlineKeyboardButton(text="📣 Xabar yuborish", callback_data="admin:broadcast"),
+        ],
+        [
+            InlineKeyboardButton(text="🗳️ Ovoz tizimi", callback_data="admin:votes"),
+            InlineKeyboardButton(text="❔ Buyruqlar", callback_data="admin:help"),
+        ],
+        [InlineKeyboardButton(text="🔄 Panelni yangilash", callback_data="admin:home")],
     ])
 
 
@@ -30,7 +42,7 @@ async def admin_panel(message: Message) -> None:
         return
     await message.answer(
         "🛠️ <b>MafiaUzBot — Admin panel</b>\n\n"
-        "Bu panel orqali bot statistikasi, balanslar va e’lonlarni boshqarishingiz mumkin.",
+        "Kerakli bo‘limni tugma orqali tanlang. O‘zgarishlar audit jurnaliga yoziladi.",
         reply_markup=_keyboard(),
     )
 
@@ -41,6 +53,13 @@ async def admin_actions(callback: CallbackQuery) -> None:
         await callback.answer("⛔ Ruxsat yo‘q.", show_alert=True)
         return
     action = (callback.data or "").split(":", 1)[1]
+
+    if action == "home":
+        await callback.answer("Panel yangilandi.")
+        if callback.message:
+            await callback.message.answer("🛠️ <b>Admin panel</b>", reply_markup=_keyboard())
+        return
+
     if action == "stats":
         async with get_session_factory()() as session:
             users = await session.scalar(select(func.count()).select_from(User)) or 0
@@ -48,25 +67,59 @@ async def admin_actions(callback: CallbackQuery) -> None:
             active_rooms = await session.scalar(select(func.count()).select_from(GameRoom).where(GameRoom.status == "active")) or 0
             matches = await session.scalar(select(func.count()).select_from(GameMatch)) or 0
             wins = await session.scalar(select(func.sum(User.wins))) or 0
-        text = (f"📊 <b>Bot statistikasi</b>\n\n👥 Foydalanuvchilar: <b>{users}</b>\n"
-                f"🏠 Xonalar: <b>{rooms}</b>\n🎮 Faol xonalar: <b>{active_rooms}</b>\n"
-                f"🎲 Jami matchlar: <b>{matches}</b>\n🏆 Jami g‘alabalar: <b>{wins}</b>")
-        await callback.answer()
-        if callback.message:
-            await callback.message.answer(text, reply_markup=_keyboard())
+        body = (
+            f"📊 <b>Bot statistikasi</b>\n\n👥 Foydalanuvchilar: <b>{users}</b>\n"
+            f"🏠 Jami xonalar: <b>{rooms}</b>\n🎮 Faol xonalar: <b>{active_rooms}</b>\n"
+            f"🎲 Jami matchlar: <b>{matches}</b>\n🏆 Jami g‘alabalar: <b>{wins}</b>"
+        )
+    elif action == "rooms":
+        async with get_session_factory()() as session:
+            active_rooms = list((await session.scalars(
+                select(GameRoom).where(GameRoom.status == "active").order_by(GameRoom.id.desc()).limit(10)
+            )).all())
+        body = "🎮 <b>Faol o‘yinlar</b>\n\n"
+        body += "\n".join(
+            f"• Xona <code>{room.room_code}</code> — egasi <code>{room.owner_id}</code>"
+            for room in active_rooms
+        ) if active_rooms else "Hozir faol xona yo‘q."
+    elif action == "coins":
+        body = (
+            "🪙 <b>Tangalarni boshqarish</b>\n\n"
+            "Foydalanuvchiga tanga qo‘shish uchun:\n"
+            "<code>/coins TELEGRAM_ID MIQDOR</code>\n\n"
+            "Masalan: <code>/coins 123456789 50</code> — 50 tanga qo‘shadi.\n"
+            "Ayirish uchun manfiy miqdor yozing: <code>/coins 123456789 -20</code>."
+        )
+    elif action == "broadcast":
+        body = (
+            "📣 <b>Umumiy xabar yuborish</b>\n\n"
+            "<code>/broadcast Xabar matni</code>\n\n"
+            "Xabar foydalanuvchilarga rasmiy bot xabari sifatida yuboriladi. "
+            "Ko‘p foydalanuvchiga yuborishda Telegram cheklovlariga rioya qilinadi."
+        )
+    elif action == "votes":
+        body = (
+            "🗳️ <b>Ovoz berish tizimi</b>\n\n"
+            "Solo rejimida bot-o‘yinchilar navbatma-navbat ovoz bildiradi. "
+            "Eng ko‘p ovoz olgan nomzod sudga chiqadi. Like Dislike’dan ko‘p bo‘lsa osiladi; "
+            "tenglikda yoki Dislike ko‘p bo‘lsa ozod qilinadi.\n\n"
+            "Ovozlar sun’iy ravishda haqiqiy foydalanuvchilar ovozi sifatida ko‘rsatilmaydi."
+        )
+    elif action == "help":
+        body = (
+            "🧾 <b>Admin buyruqlari</b>\n\n"
+            "/admin — panel\n"
+            "/broadcast MATN — barcha foydalanuvchilarga rasmiy xabar\n"
+            "/coins TELEGRAM_ID MIQDOR — balansni o‘zgartirish\n"
+            "Tugmalar orqali statistika, faol xonalar, tangalar va ovoz tizimi bo‘limlarini ochishingiz mumkin."
+        )
+    else:
+        await callback.answer("Noma’lum amal.", show_alert=True)
         return
-    if action == "help":
-        await callback.answer()
-        if callback.message:
-            await callback.message.answer(
-                "🧾 <b>Admin buyruqlari</b>\n"
-                "/admin — panel\n"
-                "/broadcast MATN — barcha foydalanuvchilarga xabar yuborish\n"
-                "/coins TELEGRAM_ID MIQDOR — balansni o‘zgartirish (manfiy son ham mumkin).",
-                reply_markup=_keyboard(),
-            )
-        return
-    await callback.answer("Noma’lum amal.", show_alert=True)
+
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(body, reply_markup=_keyboard())
 
 
 @router.message(Command("coins"))
@@ -97,9 +150,11 @@ async def admin_coins(message: Message) -> None:
                 session.add(BotSetting(key=key, value=str(new)))
             else:
                 row.value = str(new)
-            session.add(AdminAuditLog(admin_id=message.from_user.id, action="adjust_coins",
-                                      target_id=target_id, details=f"{old}->{new}"))
-    await message.answer(f"✅ <code>{target_id}</code> balans: <b>{new} 🪙</b>")
+            session.add(AdminAuditLog(
+                admin_id=message.from_user.id, action="adjust_coins",
+                target_id=target_id, details=f"{old}->{new}"
+            ))
+    await message.answer(f"✅ <code>{target_id}</code> balans: <b>{new} 🪙</b>", reply_markup=_keyboard())
 
 
 @router.message(Command("broadcast"))
@@ -120,8 +175,14 @@ async def admin_broadcast(message: Message) -> None:
             sent += 1
         except Exception:
             failed += 1
+        await asyncio.sleep(0.06)
     async with get_session_factory()() as session:
         async with session.begin():
-            session.add(AdminAuditLog(admin_id=message.from_user.id, action="broadcast",
-                                      details=json.dumps({"sent": sent, "failed": failed}, ensure_ascii=False)))
-    await message.answer(f"📣 Yuborish yakunlandi. Yetkazildi: <b>{sent}</b>, xato: <b>{failed}</b>.")
+            session.add(AdminAuditLog(
+                admin_id=message.from_user.id, action="broadcast",
+                details=json.dumps({"sent": sent, "failed": failed}, ensure_ascii=False)
+            ))
+    await message.answer(
+        f"📣 Yuborish yakunlandi. Yetkazildi: <b>{sent}</b>, xato: <b>{failed}</b>.",
+        reply_markup=_keyboard(),
+    )
