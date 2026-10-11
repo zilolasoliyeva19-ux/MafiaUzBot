@@ -21,6 +21,7 @@ HELP_TEXT = (
     "/start — asosiy menyu\n"
     "/app — MafiaUz Mini App\n"
     "/group — guruh uchun inline menyu\n"
+    "Inline rejim — istalgan chatda @MafiaJaneUzbot deb yozing\n"
     "/game — guruhda 90 soniyalik o‘yin ochish (kamida 4 kishi)\n"
     "/help — yordam\n"
     "/rules — o‘yin qoidalari\n"
