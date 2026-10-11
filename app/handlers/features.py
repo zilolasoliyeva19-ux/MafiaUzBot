@@ -220,11 +220,12 @@ SOLO_ROLE_INFO = {
     "maniac": ("🪓", "Manyak", "Yolg‘iz o‘ynaydi va har tun bitta nishonni yo‘q qilishga urinadi."),
     "citizen": ("👤", "Fuqaro", "Maxsus tungi kuch yo‘q. Kuzatish va ovoz bilan shaharni qutqaring."),
 }
+# Direct, lightweight GIPHY renditions instead of the old unverified media IDs.
 SOLO_GIF = {
-    "intro": "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
-    "night": "https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif",
-    "vote": "https://media.giphy.com/media/26BRuo6sLetDLLrUU/giphy.gif",
-    "win": "https://media.giphy.com/media/g9582DNuQppxC/giphy.gif",
+    "intro": "https://media1.giphy.com/media/vXgzDdnQ8an6sLS8CB/200.gif",
+    "night": "https://media1.giphy.com/media/UPLqiMW16vXsfpuHCP/200.gif",
+    "vote": "https://media1.giphy.com/media/iHcxDxXqOAC5o0639Q/200.gif",
+    "win": "https://media1.giphy.com/media/cZ7rmKfFYOvYI/200.gif",
 }
 
 
@@ -543,13 +544,10 @@ async def solo_vote(callback: CallbackQuery) -> None:
         await callback.answer("Ovoz noto‘g‘ri.", show_alert=True)
         return
     uid = callback.from_user.id
-    result_text = ""
-    game = None
     async with get_session_factory()() as session:
         async with session.begin():
-            user = await session.get(User, uid)
             raw = await _get_value(session, f"u:{uid}:solo", "")
-            if user is None or not raw:
+            if not raw:
                 await callback.answer("Avval Solo Game boshlang.", show_alert=True)
                 return
             game = json.loads(raw)
@@ -567,26 +565,91 @@ async def solo_vote(callback: CallbackQuery) -> None:
             if not chosen["alive"] or chosen.get("is_player"):
                 await callback.answer("Bu o‘yinchini tanlab bo‘lmaydi.", show_alert=True)
                 return
-            chosen["alive"] = False
-            result_text = f"🗳️ Siz <b>{chosen['name']}</b>ga ovoz berdingiz.\n"
-            result_text += f"🎭 Uning roli: <b>{_solo_role_label(chosen['role'])}</b>.\n"
-            # Simulate town/mafia votes; the human vote is not guaranteed to win.
-            alive = _solo_alive(game)
-            eligible = [p for p in alive if not p.get("is_player")]
-            ai_votes = []
+
+            # Tanlangan gumondor darhol o‘lmaydi: avval Like/Dislike sudi boshlanadi.
+            eligible = [p for p in game["bots"] if p["alive"] and not p.get("is_player") and p["id"] != chosen["id"]]
+            likes = 0
+            dislikes = 0
             for voter in eligible:
-                options = [p for p in alive if p["id"] != voter["id"]]
-                if options:
-                    # Mafia tries to remove town; town has a modest chance to follow the player.
-                    if _solo_team(voter["role"]) == "mafia":
-                        pool = [p for p in options if _solo_team(p["role"]) != "mafia"] or options
-                    else:
-                        pool = [p for p in options if _solo_team(p["role"]) == "mafia"] or options
-                    ai_votes.append(random.choice(pool)["id"])
-            if ai_votes.count(chosen["id"]) >= max(1, len(eligible) // 3):
-                result_text += "⚖️ Sizning ovozingiz ko‘pchilik bilan birlashdi."
+                if _solo_team(voter["role"]) == "mafia":
+                    favor_like = _solo_team(chosen["role"]) != "mafia"
+                else:
+                    favor_like = _solo_team(chosen["role"]) == "mafia"
+                if random.random() < (0.68 if favor_like else 0.32):
+                    likes += 1
+                else:
+                    dislikes += 1
+            game["phase"] = "trial"
+            game["trial"] = {
+                "target_id": chosen["id"],
+                "target_name": chosen["name"],
+                "target_role": chosen["role"],
+                "likes": likes,
+                "dislikes": dislikes,
+            }
+            await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
+
+    trial_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"👍 Like — {likes} + sizning ovozingiz", callback_data="solo:trial:like")],
+        [InlineKeyboardButton(text=f"👎 Dislike — {dislikes} + sizning ovozingiz", callback_data="solo:trial:dislike")],
+    ])
+    trial_text = (
+        "⚖️ <b>MAFIA SUDI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Gumondor: <b>{chosen['name']}</b>\n"
+        "Endi hukm chiqarish uchun Like yoki Dislike bosing.\n\n"
+        f"👍 Like: <b>{likes}</b>\n"
+        f"👎 Dislike: <b>{dislikes}</b>\n\n"
+        "📌 Like ko‘p bo‘lsa — osiladi. Dislike ko‘p yoki ovozlar teng bo‘lsa — osilmaydi."
+    )
+    if callback.message:
+        try:
+            await callback.message.answer_animation(animation=SOLO_GIF["vote"], caption=trial_text, reply_markup=trial_keyboard)
+        except Exception:
+            await callback.message.answer(trial_text, reply_markup=trial_keyboard)
+    await callback.answer("Gumondor tanlandi.")
+
+
+@router.callback_query(F.data.in_({"solo:trial:like", "solo:trial:dislike"}))
+async def solo_trial_react(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    reaction = (callback.data or "").rsplit(":", 1)[-1]
+    result_text = ""
+    game = None
+    async with get_session_factory()() as session:
+        async with session.begin():
+            raw = await _get_value(session, f"u:{uid}:solo", "")
+            if not raw:
+                await callback.answer("Avval Solo Game boshlang.", show_alert=True)
+                return
+            game = json.loads(raw)
+            if game.get("status") != "active" or game.get("phase") != "trial" or not game.get("trial"):
+                await callback.answer("Bu ovoz berish allaqachon yakunlangan.", show_alert=True)
+                return
+            player = next((p for p in game["bots"] if p.get("is_player")), None)
+            if not player or not player["alive"]:
+                await callback.answer("Siz o‘yinda emassiz.", show_alert=True)
+                return
+
+            trial = game["trial"]
+            likes = int(trial["likes"]) + (1 if reaction == "like" else 0)
+            dislikes = int(trial["dislikes"]) + (1 if reaction == "dislike" else 0)
+            target = next((p for p in game["bots"] if p["id"] == trial["target_id"]), None)
+            result_text = (
+                "⚖️ <b>MAFIA SUDI — NATIJA</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"👤 Gumondor: <b>{trial['target_name']}</b>\n"
+                f"👍 Like: <b>{likes}</b>\n"
+                f"👎 Dislike: <b>{dislikes}</b>\n\n"
+            )
+            if likes > dislikes and target and target["alive"]:
+                target["alive"] = False
+                result_text += f"🔨 <b>{trial['target_name']} OSILDI!</b>\n🎭 Uning roli: <b>{_solo_role_label(trial['target_role'])}</b>."
+            elif likes == dislikes:
+                result_text += "🤝 <b>OVOZLAR TENG.</b> Hech kim osilmaydi."
             else:
-                result_text += "⚖️ Ovozlar tarqalib ketdi; sizning tanlovingiz natijani o‘zgartirmadi."
+                result_text += "🕊️ <b>DISLIKE KO‘P.</b> Gumondor ozod qilindi, hech kim osilmaydi."
+
             winner = _solo_winner(game)
             if winner:
                 _solo_finish(game, winner)
@@ -594,32 +657,35 @@ async def solo_vote(callback: CallbackQuery) -> None:
                 game["round"] += 1
                 game["phase"] = "night"
                 game["night_action"] = None
+            game.pop("trial", None)
             await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
+
             if game["status"] == "finished":
-                user.games_played += 1
-                if winner == _solo_team(player["role"]):
-                    user.wins += 1
-                    coins = await _coins(session, uid) + 50
-                    await _set_value(session, f"u:{uid}:coins", str(coins))
-                    result_text += "\n\n🏆 <b>G‘ALABA!</b> +50 🪙"
-                else:
-                    user.losses += 1
-                    result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
+                user = await session.get(User, uid)
+                if user:
+                    user.games_played += 1
+                    if winner == _solo_team(player["role"]):
+                        user.wins += 1
+                        coins = await _coins(session, uid) + 50
+                        await _set_value(session, f"u:{uid}:coins", str(coins))
+                        result_text += "\n\n🏆 <b>G‘ALABA!</b> +50 🪙"
+                    else:
+                        user.losses += 1
+                        result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
                 result_text += "\nG‘olib: " + ("🏙️ Shahar" if winner == "town" else "🔪 Mafia" if winner == "mafia" else "🪓 Manyak")
+
     if callback.message:
-        next_keyboard = _solo_keyboard(game, "night") if game["phase"] == "night" else None
-        result_text += "\n\n" + (f"🌙 <b>{game['round']}-tun boshlandi.</b>" if game["status"] == "active" else "🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
         if game["status"] == "active":
+            result_text += f"\n\n🌙 <b>{game['round']}-tun boshlandi.</b>"
+            keyboard = _solo_keyboard(game, "night")
             try:
-                await callback.message.answer_animation(
-                    animation=SOLO_GIF["vote"], caption=result_text,
-                    reply_markup=next_keyboard,
-                )
+                await callback.message.answer_animation(animation=SOLO_GIF["night"], caption=result_text, reply_markup=keyboard)
             except Exception:
-                await callback.message.edit_text(result_text, reply_markup=next_keyboard)
+                await callback.message.answer(result_text, reply_markup=keyboard)
         else:
+            result_text += "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring."
             try:
                 await callback.message.answer_animation(animation=SOLO_GIF["win"], caption=result_text)
             except Exception:
-                await callback.message.edit_text(result_text)
-    await callback.answer("Ovoz qabul qilindi.")
+                await callback.message.answer(result_text)
+    await callback.answer("Natija hisoblandi.")
