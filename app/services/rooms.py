@@ -57,7 +57,8 @@ async def create_room(
 ) -> GameRoom:
     if min_players < 4 or max_players < min_players or max_players > 50:
         raise RoomError("O‘yinchilar soni sozlamalari noto‘g‘ri.")
-    if await session.get(User, owner_id) is None:
+    owner = await session.scalar(select(User).where(User.telegram_id == owner_id).with_for_update())
+    if owner is None:
         raise RoomError("Avval /start buyrug‘i orqali ro‘yxatdan o‘ting.")
     if await _user_has_active_room(session, owner_id):
         raise RoomError("Siz allaqachon faol xona yoki o‘yindasiz.")
@@ -86,6 +87,9 @@ async def create_room(
 
 async def join_room(session: AsyncSession, user_id: int, code: str) -> GameRoom:
     normalized_code = code.strip().upper()
+    user = await session.scalar(select(User).where(User.telegram_id == user_id).with_for_update())
+    if user is None:
+        raise RoomError("Avval /start buyrug‘i orqali ro‘yxatdan o‘ting.")
     room = await session.scalar(
         select(GameRoom).where(GameRoom.room_code == normalized_code).with_for_update()
     )
@@ -93,9 +97,6 @@ async def join_room(session: AsyncSession, user_id: int, code: str) -> GameRoom:
         raise RoomError("Bunday xona topilmadi yoki u yopiq.")
     if room.status != "lobby":
         raise RoomError("Bu xona yangi o‘yinchilarni qabul qilmayapti.")
-    if await session.get(User, user_id) is None:
-        raise RoomError("Avval /start buyrug‘i orqali ro‘yxatdan o‘ting.")
-
     existing = await session.scalar(
         select(GameParticipant.id).where(
             GameParticipant.room_id == room.id,
