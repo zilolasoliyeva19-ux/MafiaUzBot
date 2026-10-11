@@ -209,25 +209,142 @@ async def shop_owned(callback: CallbackQuery) -> None:
     await callback.answer("Bu buyum sizda bor.")
 
 
-def _solo_keyboard(game: dict, mode: str = "inspect") -> InlineKeyboardMarkup:
-    action = "inspect" if mode == "inspect" else "vote"
-    label = "🔎 Tekshirish" if mode == "inspect" else "🗳️ Ovoz berish"
+
+SOLO_NAMES = ["Ali", "Madina", "Jasur", "Malika", "Bekzod", "Dilnoza", "Sardor", "Zarina", "Aziz", "Mohira", "Kamron", "Sevara", "Diyor", "Nodira", "Rustam", "Shahnoza"]
+SOLO_ROLE_INFO = {
+    "mafia": ("🔪", "Mafiya", "Har tun bir tirik o‘yinchini yo‘q qilishga urinadi."),
+    "don": ("🕴️", "Don", "Mafiya yetakchisi. Har tun hujum qiladi va tekshiruvda oddiy fuqaro bo‘lib ko‘rinadi."),
+    "doctor": ("🩺", "Shifokor", "Har tun bir o‘yinchini, jumladan o‘zingizni, himoya qilishingiz mumkin."),
+    "detective": ("🕵️", "Detektiv", "Har tun bir o‘yinchini tekshirib, u mafiya jamoasida ekanini bilib olasiz."),
+    "bodyguard": ("🛡️", "Tansoqchi", "Har tun bir o‘yinchini himoya qilasiz. Hujum unga tegsa, siz zararni qabul qilishingiz mumkin."),
+    "maniac": ("🪓", "Manyak", "Yolg‘iz o‘ynaydi va har tun bitta nishonni yo‘q qilishga urinadi."),
+    "citizen": ("👤", "Fuqaro", "Maxsus tungi kuch yo‘q. Kuzatish va ovoz bilan shaharni qutqaring."),
+}
+SOLO_GIF = {
+    "intro": "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+    "night": "https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif",
+    "vote": "https://media.giphy.com/media/26BRuo6sLetDLLrUU/giphy.gif",
+    "win": "https://media.giphy.com/media/g9582DNuQppxC/giphy.gif",
+}
+
+
+def _solo_setup_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"{label}: {bot['name']}",
-            callback_data=f"solo:{action}:{i}",
-        )]
-        for i, bot in enumerate(game["bots"]) if bot["alive"]
+        [InlineKeyboardButton(text="👥 5 kishi", callback_data="solo:setup:5"),
+         InlineKeyboardButton(text="👥 7 kishi", callback_data="solo:setup:7"),
+         InlineKeyboardButton(text="👥 9 kishi", callback_data="solo:setup:9")],
+        [InlineKeyboardButton(text="👥 12 kishi", callback_data="solo:setup:12"),
+         InlineKeyboardButton(text="👥 15 kishi", callback_data="solo:setup:15")],
     ])
 
 
+def _solo_role_plan(total: int) -> list[str]:
+    # Total includes the human player. Role composition scales with table size.
+    roles = ["don", "doctor", "detective", "bodyguard"]
+    if total >= 7:
+        roles += ["maniac"]
+    if total >= 9:
+        roles += ["mafia"]
+    if total >= 12:
+        roles += ["mafia"]
+    roles += ["citizen"] * max(0, total - len(roles))
+    return roles[:total]
+
+
+def _solo_keyboard(game: dict, mode: str = "vote") -> InlineKeyboardMarkup:
+    rows = []
+    for i, bot in enumerate(game["bots"]):
+        if not bot["alive"] or bot.get("is_player"):
+            continue
+        rows.append([InlineKeyboardButton(
+            text=f"{bot['emoji']} {bot['name']}",
+            callback_data=f"solo:{mode}:{i}",
+        )])
+    if game.get("phase") == "night" and game.get("player_role") in {"doctor", "bodyguard"}:
+        rows.append([InlineKeyboardButton(text="⏭️ Himoya qilmaslik", callback_data="solo:skip:0")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def _solo_alive(game: dict) -> list[dict]:
-    return [bot for bot in game["bots"] if bot["alive"]]
+    return [p for p in game["bots"] if p["alive"]]
 
 
-def _solo_finish(game: dict, won: bool) -> None:
-    game["status"] = "won" if won else "lost"
+def _solo_team(role: str) -> str:
+    if role in {"mafia", "don"}:
+        return "mafia"
+    if role == "maniac":
+        return "maniac"
+    return "town"
+
+
+def _solo_winner(game: dict) -> str | None:
+    alive = _solo_alive(game)
+    mafia = sum(_solo_team(p["role"]) == "mafia" for p in alive)
+    maniac = sum(p["role"] == "maniac" for p in alive)
+    town = len(alive) - mafia - maniac
+    if mafia == 0 and maniac == 0:
+        return "town"
+    if maniac and maniac >= mafia + town:
+        return "maniac"
+    if mafia and mafia >= town + maniac:
+        return "mafia"
+    return None
+
+
+def _solo_finish(game: dict, winner: str) -> None:
+    game["status"] = "finished"
     game["phase"] = "finished"
+    game["winner"] = winner
+
+
+def _solo_role_label(role: str) -> str:
+    emoji, name, _ = SOLO_ROLE_INFO[role]
+    return f"{emoji} {name}"
+
+
+def _solo_assign_roles(total: int, player_id: int) -> tuple[list[dict], str]:
+    roles = _solo_role_plan(total)
+    random.shuffle(roles)
+    player_role = roles.pop()
+    people = [{"id": player_id, "name": "Siz", "role": player_role, "alive": True,
+               "is_player": True, "emoji": "🧑"}]
+    names = SOLO_NAMES.copy()
+    random.shuffle(names)
+    for i, role in enumerate(roles):
+        people.append({"id": -(i + 1), "name": names[i], "role": role, "alive": True,
+                       "is_player": False, "emoji": SOLO_ROLE_INFO[role][0]})
+    return people, player_role
+
+
+async def _solo_advance_night(game: dict) -> str:
+    """Resolve AI actions for the night and return a short narrative."""
+    alive = _solo_alive(game)
+    messages = []
+    protectors = [p for p in alive if p["role"] in {"doctor", "bodyguard"}]
+    mafia = [p for p in alive if p["role"] in {"mafia", "don"}]
+    maniacs = [p for p in alive if p["role"] == "maniac"]
+    targets = [p for p in alive if p["role"] not in {"mafia", "don"}]
+    attacks = []
+    if mafia and targets:
+        attacks.append((random.choice(targets), "mafia"))
+    if maniacs:
+        targets = [p for p in alive if p["role"] != "maniac"]
+        if targets:
+            attacks.append((random.choice(targets), "maniac"))
+    protected = []
+    for protector in protectors:
+        choices = [p for p in alive if p["id"] != protector["id"]]
+        if choices and random.random() < 0.8:
+            protected.append(random.choice(choices))
+    for target, source in attacks:
+        if any(p["id"] == target["id"] for p in protected):
+            messages.append(f"🛡️ {target['name']}ga qilingan hujum qaytarildi.")
+            continue
+        target["alive"] = False
+        messages.append(f"💀 {target['name']} tunda halok bo‘ldi.")
+    if not messages:
+        messages.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
+    return "\n".join(messages)
 
 
 @router.message(Command("solo"))
@@ -235,95 +352,167 @@ def _solo_finish(game: dict, won: bool) -> None:
 async def solo_start(message: Message) -> None:
     if message.from_user is None:
         return
-    names = ["Ali", "Madina", "Jasur", "Malika", "Bekzod", "Dilnoza"]
-    random.shuffle(names)
-    roles = ["mafia", "doctor", "citizen", "citizen"]
-    random.shuffle(roles)
-    bots = [
-        {"name": names[i], "role": roles[i], "alive": True}
-        for i in range(4)
-    ]
-    game = {
-        "bots": bots,
-        "round": 1,
-        "status": "active",
-        "phase": "inspect",
-        "inspected_round": 0,
-        "night_log": "",
-    }
-    async with get_session_factory()() as session:
-        async with session.begin():
-            await _ensure_user(session, message.from_user)
-            await _set_value(session, f"u:{message.from_user.id}:solo", json.dumps(game))
     await message.answer(
-        "🤖 <b>SOLO MAFIA — 1-kecha</b>\n\n"
-        "Siz — 🕵️ <b>Detektiv</b>. Shaharda 4 gumondor bor: ular orasida mafiya, "
-        "shifokor va 2 fuqaro yashiringan.\n\n"
-        "🌙 <b>TUN:</b> bittasini tekshiring. Keyin mafiya hujum qiladi, "
-        "shifokor esa kimnidir qutqarishga urinadi.\n"
-        "☀️ <b>KUN:</b> dalilingizga qarab ovoz bering. Mafiya topilsa yutasiz; "
-        "fuqaroni ayblasangiz o‘yin davom etadi.",
-        reply_markup=_solo_keyboard(game, "inspect"),
+        "🎭 <b>MAFIA: SOLO CAMPAIGN</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "👥 Stol atrofidagi jami o‘yinchilar sonini tanlang. Siz ham shu songa kiradi.\n\n"
+        "🎲 Rolingiz tasodifiy beriladi: mafiya, Don, shifokor, detektiv, tansoqchi, manyak yoki fuqaro.\n"
+        "🌙 Tun → ☀️ muhokama va ovoz → 🏁 g‘alaba shartigacha davom etadi.",
+        reply_markup=_solo_setup_keyboard(),
     )
 
 
-@router.callback_query(F.data.startswith("solo:inspect:"))
-async def solo_inspect(callback: CallbackQuery) -> None:
-    try:
-        index = int((callback.data or "").rsplit(":", 1)[-1])
-    except ValueError:
-        await callback.answer("Tanlov noto‘g‘ri.", show_alert=True)
+@router.callback_query(F.data.startswith("solo:setup:"))
+async def solo_setup(callback: CallbackQuery) -> None:
+    if not callback.from_user:
         return
-
+    try:
+        total = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("O‘yinchi soni noto‘g‘ri.", show_alert=True)
+        return
+    if total not in {5, 7, 9, 12, 15}:
+        await callback.answer("Mavjud o‘yinchi sonidan tanlang.", show_alert=True)
+        return
+    players, player_role = _solo_assign_roles(total, callback.from_user.id)
+    game = {
+        "total": total, "bots": players, "player_role": player_role,
+        "round": 1, "status": "active", "phase": "night", "night_action": None,
+        "last_protected": None, "last_inspected": None, "log": [],
+    }
     async with get_session_factory()() as session:
         async with session.begin():
-            raw = await _get_value(session, f"u:{callback.from_user.id}:solo", "")
+            await _ensure_user(session, callback.from_user)
+            await _set_value(session, f"u:{callback.from_user.id}:solo", json.dumps(game, ensure_ascii=False))
+    emoji, role_name, role_desc = SOLO_ROLE_INFO[player_role]
+    text = (
+        "🎬 <b>MAFIA — O‘YIN BOSHLANDI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"👥 Ishtirokchilar: <b>{total}</b>\n"
+        f"🌙 Raund: <b>1</b> · <b>TUN</b>\n\n"
+        f"🎭 <b>Sizning maxfiy rolingiz: {emoji} {role_name}</b>\n"
+        f"📜 {role_desc}\n\n"
+        "🤫 Rolingizni sir saqlang. Har bir qaror keyingi bosqichga ta’sir qiladi."
+    )
+    if player_role in {"mafia", "don"}:
+        teammates = [p["name"] for p in players if _solo_team(p["role"]) == "mafia" and not p.get("is_player")]
+        text += "\n\n🤝 <b>Mafiya jamoasi:</b> " + (", ".join(teammates) or "Siz yagona mafiya vakilisiz.")
+    if callback.message:
+        try:
+            await callback.message.edit_text(text, reply_markup=_solo_keyboard(game, "night"))
+        except Exception:
+            await callback.message.answer(text, reply_markup=_solo_keyboard(game, "night"))
+    await callback.answer("O‘yin yaratildi!")
+
+
+@router.callback_query(F.data.startswith("solo:skip:"))
+async def solo_skip(callback: CallbackQuery) -> None:
+    await _solo_process_night(callback, None)
+
+
+@router.callback_query(F.data.startswith("solo:night:"))
+async def solo_night(callback: CallbackQuery) -> None:
+    try:
+        target_index = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("Nishon noto‘g‘ri.", show_alert=True)
+        return
+    await _solo_process_night(callback, target_index)
+
+
+async def _solo_process_night(callback: CallbackQuery, target_index: int | None) -> None:
+    uid = callback.from_user.id
+    result_text = ""
+    game = None
+    async with get_session_factory()() as session:
+        async with session.begin():
+            raw = await _get_value(session, f"u:{uid}:solo", "")
             if not raw:
-                await callback.answer("Avval Solo Game boshlang.", show_alert=True)
+                await callback.answer("Avval yangi Solo Game boshlang.", show_alert=True)
                 return
             game = json.loads(raw)
-            if game.get("status") != "active" or game.get("phase") != "inspect":
-                await callback.answer("Hozir tekshirish mumkin emas.", show_alert=True)
+            if game.get("status") != "active" or game.get("phase") != "night":
+                await callback.answer("Hozir tun bosqichi emas.", show_alert=True)
                 return
+            player = next((p for p in game["bots"] if p.get("is_player")), None)
+            if not player or not player["alive"]:
+                await callback.answer("Siz o‘yindan chiqib ketgansiz.", show_alert=True)
+                return
+            role = player["role"]
+            target = game["bots"][target_index] if target_index is not None and 0 <= target_index < len(game["bots"]) else None
+            if target_index is not None and (target is None or not target["alive"] or target.get("is_player")):
+                await callback.answer("Bu nishonni tanlab bo‘lmaydi.", show_alert=True)
+                return
+            if role in {"mafia", "don", "maniac"} and target is None:
+                await callback.answer("Hujum uchun nishon tanlang.", show_alert=True)
+                return
+            if role in {"doctor", "bodyguard"} and target is None:
+                game["night_action"] = {"type": role, "target": None}
+            elif role in {"mafia", "don"} and _solo_team(target["role"]) == "mafia":
+                await callback.answer("O‘z jamoangizga hujum qila olmaysiz.", show_alert=True)
+                return
+            else:
+                if role == "detective" and target and game.get("last_inspected") == target["id"]:
+                    await callback.answer("O‘tgan tunda shu odamni tekshirgansiz. Boshqasini tanlang.", show_alert=True)
+                    return
+                game["night_action"] = {"type": role, "target": target["id"] if target else None}
+                if role == "detective" and target:
+                    game["last_inspected"] = target["id"]
+                    truth = "mafiya jamoasida" if _solo_team(target["role"]) == "mafia" else "mafiya emas"
+                    result_text = f"🕵️ <b>Maxfiy tekshiruv</b>\n{target['name']} — <b>{truth}</b>."
+            # Simulate AI night actions, respecting the player's chosen action.
             alive = _solo_alive(game)
-            if index not in range(len(game["bots"])) or not game["bots"][index]["alive"]:
-                await callback.answer("Bu gumondor o‘yinda emas.", show_alert=True)
-                return
-            if game.get("inspected_round") == game["round"]:
-                await callback.answer("Bu kecha allaqachon tekshirgansiz.", show_alert=True)
-                return
-
-            target = game["bots"][index]
-            clue = "🚨 NATIJA: bu odam — MAFIYA!" if target["role"] == "mafia" else (
-                "🩺 NATIJA: bu odam — SHIFOKOR." if target["role"] == "doctor"
-                else "✅ NATIJA: bu odam oddiy FUQARO."
-            )
-            game["inspected_round"] = game["round"]
-
-            mafia = next((bot for bot in alive if bot["role"] == "mafia"), None)
-            doctor = next((bot for bot in alive if bot["role"] == "doctor"), None)
-            night_note = ""
-            if mafia:
-                victims = [bot for bot in alive if bot["role"] != "mafia"]
-                if victims:
-                    victim = random.choice(victims)
-                    saved = doctor is not None and random.random() < 0.65
-                    if saved:
-                        night_note = "🩺 Shifokor mafiya hujumini qaytardi — bu kecha hech kim o‘lmadi."
-                    else:
-                        victim["alive"] = False
-                        night_note = f"💀 Tongda {victim['name']} o‘lik holda topildi."
-            game["night_log"] = night_note
-            game["phase"] = "vote"
-            await _set_value(session, f"u:{callback.from_user.id}:solo", json.dumps(game))
-
+            mafia_team = [p for p in alive if p["role"] in {"mafia", "don"}]
+            maniacs = [p for p in alive if p["role"] == "maniac"]
+            attacks = []
+            mafia_targets = [p for p in alive if _solo_team(p["role"]) != "mafia"]
+            if mafia_team and mafia_targets and role not in {"mafia", "don"}:
+                attacks.append((random.choice(mafia_targets), "mafia"))
+            if maniacs and role != "maniac":
+                candidates = [p for p in alive if p["role"] != "maniac"]
+                if candidates:
+                    attacks.append((random.choice(candidates), "maniac"))
+            if role in {"mafia", "don"} and target:
+                attacks.append((target, "mafia"))
+            if role == "maniac" and target:
+                attacks.append((target, "maniac"))
+            protection_target = target if role in {"doctor", "bodyguard"} else None
+            for protector in [p for p in alive if p["role"] in {"doctor", "bodyguard"} and not p.get("is_player")]:
+                candidates = [p for p in alive if p["id"] != protector["id"]]
+                if candidates and random.random() < 0.75:
+                    if random.random() < 0.65:
+                        protection_target = random.choice(candidates)
+            night_lines = []
+            protected_ids = {protection_target["id"]} if protection_target else set()
+            seen_attacks = set()
+            for victim, source in attacks:
+                if victim["id"] in seen_attacks:
+                    continue
+                seen_attacks.add(victim["id"])
+                if victim["id"] in protected_ids:
+                    night_lines.append(f"🛡️ {victim['name']}ga qilingan hujum qaytarildi.")
+                else:
+                    victim["alive"] = False
+                    night_lines.append(f"💀 {victim['name']} tunda halok bo‘ldi.")
+            if not night_lines:
+                night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
+            winner = _solo_winner(game)
+            if winner:
+                _solo_finish(game, winner)
+            else:
+                game["phase"] = "vote"
+            game["round"] += 0
+            game["log"] = night_lines
+            await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
+            result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
+            if winner:
+                result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
     if callback.message:
         await callback.message.edit_text(
-            f"🌙 <b>Detektiv tekshiruvi</b>\n{target['name']}:\n{clue}\n\n"
-            f"{night_note}\n\n☀️ <b>KUN:</b> tirik gumondorlardan biriga ovoz bering.",
-            reply_markup=_solo_keyboard(game, "vote"),
+            result_text + ("\n\n☀️ <b>Kunduzgi ovoz:</b> kimni chiqarasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring."),
+            reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
         )
-    await callback.answer("Tekshiruv yakunlandi.")
+    await callback.answer("Tun yakunlandi.")
 
 
 @router.callback_query(F.data.startswith("solo:vote:"))
@@ -331,73 +520,80 @@ async def solo_vote(callback: CallbackQuery) -> None:
     try:
         index = int((callback.data or "").rsplit(":", 1)[-1])
     except ValueError:
-        await callback.answer("Tanlov noto‘g‘ri.", show_alert=True)
+        await callback.answer("Ovoz noto‘g‘ri.", show_alert=True)
         return
-
+    uid = callback.from_user.id
+    result_text = ""
+    game = None
     async with get_session_factory()() as session:
         async with session.begin():
-            user = await session.get(User, callback.from_user.id)
-            raw = await _get_value(session, f"u:{callback.from_user.id}:solo", "")
+            user = await session.get(User, uid)
+            raw = await _get_value(session, f"u:{uid}:solo", "")
             if user is None or not raw:
-                await callback.answer("Avval yangi Solo Game boshlang.", show_alert=True)
+                await callback.answer("Avval Solo Game boshlang.", show_alert=True)
                 return
             game = json.loads(raw)
             if game.get("status") != "active" or game.get("phase") != "vote":
                 await callback.answer("Hozir ovoz berish mumkin emas.", show_alert=True)
                 return
-            if index not in range(len(game["bots"])) or not game["bots"][index]["alive"]:
-                await callback.answer("Bu gumondor tirik emas yoki tanlov noto‘g‘ri.", show_alert=True)
+            player = next((p for p in game["bots"] if p.get("is_player")), None)
+            if not player or not player["alive"]:
+                await callback.answer("Siz o‘yinda emassiz.", show_alert=True)
                 return
-
+            if index < 0 or index >= len(game["bots"]):
+                await callback.answer("Nishon noto‘g‘ri.", show_alert=True)
+                return
             chosen = game["bots"][index]
-            lines = [f"🗳️ Siz {chosen['name']}ga ovoz berdingiz."]
+            if not chosen["alive"] or chosen.get("is_player"):
+                await callback.answer("Bu o‘yinchini tanlab bo‘lmaydi.", show_alert=True)
+                return
             chosen["alive"] = False
-            if chosen["role"] == "mafia":
-                _solo_finish(game, True)
-                user.games_played += 1
-                user.wins += 1
-                coins = await _coins(session, user.telegram_id) + 50
-                await _set_value(session, f"u:{user.telegram_id}:coins", str(coins))
-                lines.append("🎉 <b>G‘ALABA!</b> Siz mafiya boshlig‘ini topdingiz. +50 🪙")
-            else:
-                lines.append(f"⚖️ {chosen['name']} — {chosen['role'].upper()}. Siz noto‘g‘ri ovoz berdingiz.")
-                mafia = next((bot for bot in _solo_alive(game) if bot["role"] == "mafia"), None)
-                if mafia:
-                    alive = _solo_alive(game)
-                    non_mafia = [bot for bot in alive if bot["role"] != "mafia"]
-                    if len(non_mafia) <= 1:
-                        _solo_finish(game, False)
-                        user.games_played += 1
-                        user.losses += 1
-                        lines.append(f"💀 <b>MAFIYA YUTDI!</b> Mafiya — {mafia['name']}.")
+            result_text = f"🗳️ Siz <b>{chosen['name']}</b>ga ovoz berdingiz.\n"
+            result_text += f"🎭 Uning roli: <b>{_solo_role_label(chosen['role'])}</b>.\n"
+            # Simulate town/mafia votes; the human vote is not guaranteed to win.
+            alive = _solo_alive(game)
+            eligible = [p for p in alive if not p.get("is_player")]
+            ai_votes = []
+            for voter in eligible:
+                options = [p for p in alive if p["id"] != voter["id"]]
+                if options:
+                    # Mafia tries to remove town; town has a modest chance to follow the player.
+                    if _solo_team(voter["role"]) == "mafia":
+                        pool = [p for p in options if _solo_team(p["role"]) != "mafia"] or options
                     else:
-                        victims = [bot for bot in alive if bot["role"] != "mafia"]
-                        doctor = next((bot for bot in alive if bot["role"] == "doctor"), None)
-                        victim = random.choice(victims)
-                        if doctor is not None and random.random() < 0.65:
-                            lines.append("🩺 Shifokor tun hujumini qaytardi. Hech kim o‘lmadi.")
-                        else:
-                            victim["alive"] = False
-                            lines.append(f"🌙 Kechasi {victim['name']} mafiya hujumida halok bo‘ldi.")
-                            remaining = _solo_alive(game)
-                            remaining_non_mafia = [bot for bot in remaining if bot["role"] != "mafia"]
-                            if len(remaining_non_mafia) <= 1:
-                                _solo_finish(game, False)
-                                user.games_played += 1
-                                user.losses += 1
-                                lines.append(f"💀 <b>MAFIYA YUTDI!</b> Mafiya — {mafia['name']}.")
-                if game["status"] == "active":
-                    game["round"] += 1
-                    game["phase"] = "inspect"
-                    lines.append(f"\n🌅 <b>{game['round']}-kecha boshlandi.</b> Yangi gumondorni tekshiring.")
-            await _set_value(session, f"u:{user.telegram_id}:solo", json.dumps(game))
-
+                        pool = [p for p in options if _solo_team(p["role"]) == "mafia"] or options
+                    ai_votes.append(random.choice(pool)["id"])
+            if ai_votes.count(chosen["id"]) >= max(1, len(eligible) // 3):
+                result_text += "⚖️ Sizning ovozingiz ko‘pchilik bilan birlashdi."
+            else:
+                result_text += "⚖️ Ovozlar tarqalib ketdi; sizning tanlovingiz natijani o‘zgartirmadi."
+            winner = _solo_winner(game)
+            if winner:
+                _solo_finish(game, winner)
+            else:
+                game["round"] += 1
+                game["phase"] = "night"
+                game["night_action"] = None
+            await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
+            if game["status"] == "finished":
+                user.games_played += 1
+                if winner == _solo_team(player["role"]):
+                    user.wins += 1
+                    coins = await _coins(session, uid) + 50
+                    await _set_value(session, f"u:{uid}:coins", str(coins))
+                    result_text += "\n\n🏆 <b>G‘ALABA!</b> +50 🪙"
+                else:
+                    user.losses += 1
+                    result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
+                result_text += "\nG‘olib: " + ("🏙️ Shahar" if winner == "town" else "🔪 Mafia" if winner == "mafia" else "🪓 Manyak")
     if callback.message:
-        await callback.message.edit_text(
-            "\n".join(lines) + (
-                "\n\n🤖 Yana o‘ynash uchun Solo Game tugmasini bosing."
-                if game["status"] != "active" else ""
-            ),
-            reply_markup=_solo_keyboard(game, "inspect") if game["status"] == "active" else None,
-        )
-    await callback.answer("Ovoz hisoblandi.")
+        next_keyboard = _solo_keyboard(game, "night") if game["phase"] == "night" else None
+        result_text += "\n\n" + (f"🌙 <b>{game['round']}-tun boshlandi.</b>" if game["status"] == "active" else "🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
+        if game["status"] == "active":
+            if game["player_role"] in {"citizen"}:
+                result_text += "\nSizda tungi qobiliyat yo‘q. Tun bosqichini davom ettirish uchun pastdagi tugma kerak."
+                next_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌙 Tunni davom ettirish", callback_data="solo:night:999")]])
+            await callback.message.edit_text(result_text, reply_markup=next_keyboard)
+        else:
+            await callback.message.edit_text(result_text)
+    await callback.answer("Ovoz qabul qilindi.")
