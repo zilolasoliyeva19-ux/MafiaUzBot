@@ -511,6 +511,8 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             if not night_lines:
                 night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
             winner = _solo_winner(game)
+            if not player["alive"] and not winner:
+                winner = "town" if _solo_team(player["role"]) == "mafia" else "mafia"
             if winner:
                 _solo_finish(game, winner)
             else:
