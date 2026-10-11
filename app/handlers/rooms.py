@@ -32,6 +32,7 @@ router = Router(name="rooms")
 def room_keyboard(room_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🎭 O‘yinni boshlash (faqat xona egasi)", callback_data=f"game:start:{room_id}")],
             [
                 InlineKeyboardButton(text="🔄 Yangilash", callback_data=f"room:refresh:{room_id}"),
                 InlineKeyboardButton(text="🚪 Xonadan chiqish", callback_data=f"room:leave:{room_id}"),
@@ -55,7 +56,7 @@ def room_text(room: GameRoom, players: list, count: int | None = None) -> str:
         f"🎯 Boshlash uchun: kamida {room.min_players} kishi\n"
         f"📌 Holat: kutish xonasi\n\n"
         f"<b>Ishtirokchilar:</b>\n{player_lines}\n\n"
-        "Xona kodi orqali do‘stlaringizni taklif qiling. O‘yin boshlash mexanikasi keyingi bosqichda ulanadi."
+        "Xona kodi orqali do‘stlaringizni taklif qiling. Yetarli o‘yinchi yig‘ilgach, xona egasi “O‘yinni boshlash” tugmasini bosing."
     )
 
 
