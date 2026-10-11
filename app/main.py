@@ -6,6 +6,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
 from app.config import get_settings
+from app.database import dispose_engine
 from app.handlers.rooms import router as rooms_router
 from app.handlers.start import router as start_router
 
@@ -45,4 +46,5 @@ async def main() -> None:
         await dispatcher.start_polling(bot, close_bot_session=False)
     finally:
         await bot.session.close()
+        await dispose_engine()
         logger.info("MafiaUzBot polling stopped")
