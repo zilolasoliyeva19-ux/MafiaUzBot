@@ -1,3 +1,4 @@
+import asyncio
 import json
 import random
 from html import escape
@@ -525,6 +526,7 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
     uid = callback.from_user.id
     result_text = ""
     game = None
+    spectator_messages: list[str] = []
     async with get_session_factory()() as session:
         async with session.begin():
             raw = await _get_value(session, f"u:{uid}:solo", "")
@@ -599,9 +601,9 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
-                spectator_result = _solo_autoplay_after_elimination(game)
+                spectator_messages = list(game.get("spectator_log", []))
                 winner = game.get("winner")
-                result_text += ("\\n\\n" if result_text else "") + "👁️ <b>KUZATUVCHI REJIMI</b>\\n" + spectator_result
+                result_text += ("\n\n" if result_text else "") + "👁️ <b>KUZATUVCHI REJIMI</b>"
             elif winner:
                 _solo_finish(game, winner)
             else:
@@ -621,6 +623,10 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
+    if callback.message and spectator_messages:
+        for event_line in spectator_messages:
+            await asyncio.sleep(random.uniform(1.2, 2.4))
+            await callback.message.answer(event_line)
     if callback.message:
         final_text = result_text + ("\n\n☀️ <b>Kunduzgi ovoz:</b> kimni chiqarasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
         try:
@@ -648,6 +654,7 @@ async def solo_vote(callback: CallbackQuery) -> None:
     dislikes = 0
     trial_started = False
     result_text = ""
+    bot_vote_announcements: list[tuple[str, str, str]] = []
     async with get_session_factory()() as session:
         async with session.begin():
             raw = await _get_value(session, f"u:{uid}:solo", "")
@@ -687,7 +694,16 @@ async def solo_vote(callback: CallbackQuery) -> None:
                 else:
                     preferred = [p for p in options if _solo_team(p["role"]) == "mafia"]
                 pool = preferred if preferred and random.random() < 0.72 else options
-                tally[random.choice(pool)["id"]] += 1
+                vote_target = random.choice(pool)
+                tally[vote_target["id"]] += 1
+                if not voter.get("is_player"):
+                    comment = random.choice([
+                        f"{vote_target['name']} menga shubhali ko‘rinyapti.",
+                        f"Menimcha, {vote_target['name']} haqida gaplashish kerak.",
+                        f"Hozircha {vote_target['name']}ga ovoz beraman.",
+                        f"Dalil kam, lekin {vote_target['name']}ni tanlayman.",
+                    ])
+                    bot_vote_announcements.append((voter["name"], vote_target["name"], comment))
 
             max_votes = max(tally.values()) if tally else 0
             leaders = [p for p in alive if tally[p["id"]] == max_votes]
@@ -729,6 +745,14 @@ async def solo_vote(callback: CallbackQuery) -> None:
                 await _set_value(session, f"u:{uid}:solo", json.dumps(game, ensure_ascii=False))
                 trial_started = True
 
+    await callback.answer("Bot-o‘yinchilar navbatma-navbat ovoz bermoqda...")
+    if callback.message:
+        for voter_name, target_name, comment in bot_vote_announcements:
+            await asyncio.sleep(random.uniform(0.8, 1.7))
+            await callback.message.answer(
+                f"💬 <b>{voter_name}:</b> {comment}\n🗳️ Ovoz: <b>{target_name}</b>"
+            )
+
     if trial_started:
         trial_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"👍 Like — {likes} + sizning ovozingiz", callback_data="solo:trial:like")],
@@ -755,7 +779,6 @@ async def solo_vote(callback: CallbackQuery) -> None:
                 await callback.message.answer_animation(animation=SOLO_GIF["night"], caption=result_text, reply_markup=_solo_keyboard(game, "night"))
             except Exception:
                 await callback.message.answer(result_text, reply_markup=_solo_keyboard(game, "night"))
-    await callback.answer("Ovozlar hisoblandi.")
 
 
 @router.callback_query(F.data.in_({"solo:trial:like", "solo:trial:dislike"}))
@@ -764,6 +787,7 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
     reaction = (callback.data or "").rsplit(":", 1)[-1]
     game = None
     result_text = ""
+    spectator_messages: list[str] = []
     async with get_session_factory()() as session:
         async with session.begin():
             raw = await _get_value(session, f"u:{uid}:solo", "")
@@ -804,8 +828,8 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 result_text += "🕊️ <b>DISLIKE KO‘P.</b> Sudlanuvchi ozod qilindi."
 
             if target_is_player and hanged:
-                spectator_result = _solo_autoplay_after_elimination(game)
-                result_text += "👁️ <b>KUZATUVCHI REJIMI</b>\\n" + spectator_result + "\\n\\n"
+                spectator_messages = list(game.get("spectator_log", []))
+                result_text += "👁️ <b>KUZATUVCHI REJIMI</b>"
                 winner = game.get("winner")
             else:
                 winner = _solo_winner(game)
@@ -832,6 +856,10 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                         result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
                 result_text += "\nG‘olib: " + ("🏙️ Shahar" if winner == "town" else "🔪 Mafia" if winner == "mafia" else "🪓 Manyak")
 
+    if callback.message and spectator_messages:
+        for event_line in spectator_messages:
+            await asyncio.sleep(random.uniform(1.2, 2.4))
+            await callback.message.answer(event_line)
     if callback.message:
         if game["status"] == "active":
             result_text += f"\n\n🌙 <b>{game['round']}-tun boshlandi.</b>"
