@@ -7,6 +7,7 @@ from aiogram.types import ErrorEvent
 
 from app.config import get_settings
 from app.handlers.start import router as start_router
+from app.handlers.rooms import router as rooms_router
 
 
 def configure_logging(level: str) -> None:
@@ -27,6 +28,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(rooms_router)
 
     @dispatcher.error()
     async def on_error(event: ErrorEvent) -> bool:
