@@ -61,7 +61,7 @@ async def start_handler(message: Message) -> None:
         ])
     else:
         app_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎮 Guruh menyusi", callback_data="group:rooms")],
+            [InlineKeyboardButton(text="🎮 Guruh menyusi", callback_data="group:menu")],
             [InlineKeyboardButton(text="➕ Botni boshqa guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
         ])
     await message.answer("✨ <b>MafiaUz Mini App</b> — o‘yinlar, profil va Shop.", reply_markup=app_markup)
