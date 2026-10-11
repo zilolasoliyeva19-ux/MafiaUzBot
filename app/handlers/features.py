@@ -601,6 +601,7 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
+                _solo_autoplay_after_elimination(game)
                 spectator_messages = list(game.get("spectator_log", []))
                 winner = game.get("winner")
                 result_text += ("\n\n" if result_text else "") + "👁️ <b>KUZATUVCHI REJIMI</b>"
@@ -623,6 +624,7 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
+    await callback.answer("Kuzatuv rejimi davom etmoqda..." if spectator_messages else "Tun yakunlandi.")
     if callback.message and spectator_messages:
         for event_line in spectator_messages:
             await asyncio.sleep(random.uniform(1.2, 2.4))
@@ -636,7 +638,6 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             )
         except Exception:
             await callback.message.answer(final_text, reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None)
-    await callback.answer("Tun yakunlandi.")
 
 
 @router.callback_query(F.data.startswith("solo:vote:"))
@@ -828,6 +829,7 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 result_text += "🕊️ <b>DISLIKE KO‘P.</b> Sudlanuvchi ozod qilindi."
 
             if target_is_player and hanged:
+                _solo_autoplay_after_elimination(game)
                 spectator_messages = list(game.get("spectator_log", []))
                 result_text += "👁️ <b>KUZATUVCHI REJIMI</b>"
                 winner = game.get("winner")
@@ -856,6 +858,7 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                         result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
                 result_text += "\nG‘olib: " + ("🏙️ Shahar" if winner == "town" else "🔪 Mafia" if winner == "mafia" else "🪓 Manyak")
 
+    await callback.answer("Kuzatuv rejimi davom etmoqda..." if spectator_messages else "Hukm chiqarildi.")
     if callback.message and spectator_messages:
         for event_line in spectator_messages:
             await asyncio.sleep(random.uniform(1.2, 2.4))
@@ -874,4 +877,3 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 await callback.message.answer_animation(animation=SOLO_GIF["win"], caption=result_text)
             except Exception:
                 await callback.message.answer(result_text)
-    await callback.answer("Hukm chiqarildi.")
