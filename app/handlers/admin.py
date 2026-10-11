@@ -1,5 +1,4 @@
 import json
-from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -8,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import get_session_factory
-from app.models import AdminAuditLog, BotSetting, GameMatch, GameRoom, User
+from app.models import AdminAuditLog, GameMatch, GameRoom, User
 
 router = Router(name="admin")
 
@@ -19,8 +18,7 @@ def _is_admin(user_id: int) -> bool:
 
 def _keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats"),
-         InlineKeyboardButton(text="🔧 Xizmat holati", callback_data="admin:maintenance")],
+        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats")],
         [InlineKeyboardButton(text="❔ Buyruqlar", callback_data="admin:help")],
     ])
 
@@ -32,7 +30,7 @@ async def admin_panel(message: Message) -> None:
         return
     await message.answer(
         "🛠️ <b>MafiaUzBot — Admin panel</b>\n\n"
-        "Bu panel orqali bot statistikasi va xizmat holatini boshqarishingiz mumkin.",
+        "Bu panel orqali bot statistikasi, balanslar va e’lonlarni boshqarishingiz mumkin.",
         reply_markup=_keyboard(),
     )
 
@@ -56,26 +54,6 @@ async def admin_actions(callback: CallbackQuery) -> None:
         await callback.answer()
         if callback.message:
             await callback.message.answer(text, reply_markup=_keyboard())
-        return
-    if action == "maintenance":
-        async with get_session_factory()() as session:
-            async with session.begin():
-                row = await session.get(BotSetting, "maintenance_mode")
-                enabled = row.value == "1" if row else False
-                value = "0" if enabled else "1"
-                if row is None:
-                    session.add(BotSetting(key="maintenance_mode", value=value))
-                else:
-                    row.value = value
-                session.add(AdminAuditLog(admin_id=callback.from_user.id, action="maintenance_toggle",
-                                          details=f"enabled={value}"))
-        await callback.answer("Xizmat holati o‘zgartirildi.", show_alert=True)
-        if callback.message:
-            await callback.message.answer(
-                f"🔧 Xizmat rejimi: <b>{'YOQILDI' if value == '1' else 'O‘CHIRILDI'}</b>\n"
-                "Eslatma: barcha handlerlarni bloklash uchun texnik xizmat tekshiruvi alohida qo‘shilishi kerak.",
-                reply_markup=_keyboard(),
-            )
         return
     if action == "help":
         await callback.answer()
