@@ -30,6 +30,8 @@ class Settings(BaseSettings):
             return []
         if isinstance(value, str):
             return [int(item.strip()) for item in value.split(",") if item.strip()]
+        if isinstance(value, int) and not isinstance(value, bool):
+            return [value]
         if isinstance(value, list):
             return [int(item) for item in value]
         raise ValueError("ADMIN_IDS must be a comma-separated list of Telegram IDs")
