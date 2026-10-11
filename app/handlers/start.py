@@ -1,5 +1,5 @@
 from aiogram import Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from app.keyboards import main_menu_keyboard
@@ -21,6 +21,7 @@ HELP_TEXT = (
     "/start — asosiy menyu\n"
     "/app — MafiaUz Mini App\n"
     "/group — guruh uchun inline menyu\n"
+    "/game — guruhda 90 soniyalik o‘yin ochish (kamida 4 kishi)\n"
     "/help — yordam\n"
     "/rules — o‘yin qoidalari\n"
     "/create — xona yaratish\n"
@@ -46,13 +47,25 @@ RULES_TEXT = (
 
 
 @router.message(CommandStart())
-async def start_handler(message: Message) -> None:
+async def start_handler(message: Message, command: CommandObject) -> None:
     if message.from_user is not None:
         user = message.from_user
         display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
         async with get_session_factory()() as session:
             async with session.begin():
                 await register_user(session, user.id, user.username, display_name or user.full_name)
+    if command.args == "solo":
+        await message.answer(
+            "🤖 <b>SOLO GAME</b>\\n\\nO‘yinchilar sonini tanlang. O‘yin Mini App ichida ham mavjud.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="👥 5 kishi", callback_data="solo:setup:5"),
+                 InlineKeyboardButton(text="👥 7 kishi", callback_data="solo:setup:7")],
+                [InlineKeyboardButton(text="👥 9 kishi", callback_data="solo:setup:9"),
+                 InlineKeyboardButton(text="👥 12 kishi", callback_data="solo:setup:12")],
+                [InlineKeyboardButton(text="✨ Mini App’da o‘ynash", web_app=WebAppInfo(url="https://mafiauzbot-production.up.railway.app"))],
+            ]),
+        )
+        return
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
     if message.chat.type == "private":
         app_markup = InlineKeyboardMarkup(inline_keyboard=[
