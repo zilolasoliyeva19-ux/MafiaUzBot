@@ -1,6 +1,6 @@
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from app.keyboards import main_menu_keyboard
 from app.database import get_session_factory
@@ -19,6 +19,8 @@ WELCOME_TEXT = (
 HELP_TEXT = (
     "🆘 <b>Yordam</b>\n\n"
     "/start — asosiy menyu\n"
+    "/app — MafiaUz Mini App\n"
+    "/group — guruh uchun inline menyu\n"
     "/help — yordam\n"
     "/rules — o‘yin qoidalari\n"
     "/create — xona yaratish\n"
@@ -52,6 +54,17 @@ async def start_handler(message: Message) -> None:
             async with session.begin():
                 await register_user(session, user.id, user.username, display_name or user.full_name)
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
+    if message.chat.type == "private":
+        app_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✨ MafiaUz Mini App’ni ochish", web_app=WebAppInfo(url="https://mafiauzbot-production.up.railway.app"))],
+            [InlineKeyboardButton(text="👥 Botni guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
+        ])
+    else:
+        app_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎮 Guruh menyusi", callback_data="group:rooms")],
+            [InlineKeyboardButton(text="➕ Botni boshqa guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
+        ])
+    await message.answer("✨ <b>MafiaUz Mini App</b> — o‘yinlar, profil va Shop.", reply_markup=app_markup)
 
 
 @router.message(Command("help"))
