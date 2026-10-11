@@ -71,6 +71,16 @@ async def group_menu(message: Message) -> None:
     )
 
 
+@router.callback_query(F.data == "group:menu")
+async def group_menu_callback(callback: CallbackQuery) -> None:
+    if callback.message:
+        await callback.message.answer(
+            "🎭 <b>MAFIA UZ — GURUH MENYUSI</b>\\n\\n"
+            "Xona yaratish, ochiq xonalarni ko‘rish yoki qoidalarni ochish uchun tugmani tanlang.",
+            reply_markup=group_keyboard(),
+        )
+    await callback.answer()
+
 @router.callback_query(F.data == "group:create")
 async def group_create_room(callback: CallbackQuery) -> None:
     if callback.from_user is None or callback.message is None:
