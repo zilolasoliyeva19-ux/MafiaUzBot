@@ -46,7 +46,7 @@ class GameRoom(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    room_code: Mapped[str] = mapped_column(String(8), unique=True, index=True)
+    room_code: Mapped[str] = mapped_column(String(8), unique=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.telegram_id", ondelete="RESTRICT"))
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(24), default="lobby")
