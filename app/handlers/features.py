@@ -262,6 +262,8 @@ def _solo_keyboard(game: dict, mode: str = "vote") -> InlineKeyboardMarkup:
         )])
     if game.get("phase") == "night" and game.get("player_role") in {"doctor", "bodyguard"}:
         rows.append([InlineKeyboardButton(text="⏭️ Himoya qilmaslik", callback_data="solo:skip:0")])
+    if game.get("phase") == "night" and game.get("player_role") == "citizen":
+        rows.append([InlineKeyboardButton(text="🌙 Tunni davom ettirish", callback_data="solo:continue")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -399,14 +401,26 @@ async def solo_setup(callback: CallbackQuery) -> None:
         text += "\n\n🤝 <b>Mafiya jamoasi:</b> " + (", ".join(teammates) or "Siz yagona mafiya vakilisiz.")
     if callback.message:
         try:
-            await callback.message.edit_text(text, reply_markup=_solo_keyboard(game, "night"))
+            await callback.message.answer_animation(
+                animation=SOLO_GIF["intro"], caption=text,
+                reply_markup=_solo_keyboard(game, "night"),
+            )
+            await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
-            await callback.message.answer(text, reply_markup=_solo_keyboard(game, "night"))
+            try:
+                await callback.message.edit_text(text, reply_markup=_solo_keyboard(game, "night"))
+            except Exception:
+                await callback.message.answer(text, reply_markup=_solo_keyboard(game, "night"))
     await callback.answer("O‘yin yaratildi!")
 
 
 @router.callback_query(F.data.startswith("solo:skip:"))
 async def solo_skip(callback: CallbackQuery) -> None:
+    await _solo_process_night(callback, None)
+
+
+@router.callback_query(F.data == "solo:continue")
+async def solo_continue(callback: CallbackQuery) -> None:
     await _solo_process_night(callback, None)
 
 
@@ -508,10 +522,14 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
     if callback.message:
-        await callback.message.edit_text(
-            result_text + ("\n\n☀️ <b>Kunduzgi ovoz:</b> kimni chiqarasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring."),
-            reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
-        )
+        final_text = result_text + ("\n\n☀️ <b>Kunduzgi ovoz:</b> kimni chiqarasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
+        try:
+            await callback.message.answer_animation(
+                animation=SOLO_GIF["night"], caption=final_text,
+                reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
+            )
+        except Exception:
+            await callback.message.answer(final_text, reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None)
     await callback.answer("Tun yakunlandi.")
 
 
@@ -590,10 +608,16 @@ async def solo_vote(callback: CallbackQuery) -> None:
         next_keyboard = _solo_keyboard(game, "night") if game["phase"] == "night" else None
         result_text += "\n\n" + (f"🌙 <b>{game['round']}-tun boshlandi.</b>" if game["status"] == "active" else "🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
         if game["status"] == "active":
-            if game["player_role"] in {"citizen"}:
-                result_text += "\nSizda tungi qobiliyat yo‘q. Tun bosqichini davom ettirish uchun pastdagi tugma kerak."
-                next_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌙 Tunni davom ettirish", callback_data="solo:night:999")]])
-            await callback.message.edit_text(result_text, reply_markup=next_keyboard)
+            try:
+                await callback.message.answer_animation(
+                    animation=SOLO_GIF["vote"], caption=result_text,
+                    reply_markup=next_keyboard,
+                )
+            except Exception:
+                await callback.message.edit_text(result_text, reply_markup=next_keyboard)
         else:
-            await callback.message.edit_text(result_text)
+            try:
+                await callback.message.answer_animation(animation=SOLO_GIF["win"], caption=result_text)
+            except Exception:
+                await callback.message.edit_text(result_text)
     await callback.answer("Ovoz qabul qilindi.")
