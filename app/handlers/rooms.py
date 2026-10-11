@@ -13,7 +13,7 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.database import SessionFactory
+from app.database import get_session_factory
 from app.models import GameRoom
 from app.services.rooms import (
     RoomError,
@@ -68,7 +68,7 @@ async def _ensure_registered(session: AsyncSession, message: Message) -> int:
 
 
 async def _show_room(message: Message, room_id: int) -> None:
-    async with SessionFactory() as session:
+    async with get_session_factory()() as session:
         room, players = await get_room_snapshot(session, room_id)
         count = len(players)
     await message.answer(room_text(room, players, count), reply_markup=room_keyboard(room_id))
@@ -78,7 +78,7 @@ async def _show_room(message: Message, room_id: int) -> None:
 @router.message(F.text == "🏠 Xona yaratish")
 async def create_room_handler(message: Message) -> None:
     try:
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 user_id = await _ensure_registered(session, message)
                 settings = get_settings()
@@ -119,7 +119,7 @@ async def join_room_help_handler(message: Message) -> None:
 
 async def _join_by_code(message: Message, code: str) -> None:
     try:
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 user_id = await _ensure_registered(session, message)
                 room = await join_room(session, user_id, code)
@@ -136,7 +136,7 @@ async def _join_by_code(message: Message, code: str) -> None:
 @router.message(F.text == "🎮 O‘yin o‘ynash")
 async def list_rooms_handler(message: Message) -> None:
     try:
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             rooms = await list_public_rooms(session)
         if not rooms:
             await message.answer(
@@ -164,7 +164,7 @@ async def leave_room_command_handler(message: Message) -> None:
     if message.from_user is None:
         return
     try:
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 code = await leave_room(session, message.from_user.id)
         await message.answer(f"🚪 Siz <code>{escape(code)}</code> xonasidan chiqdingiz.")
@@ -179,7 +179,7 @@ async def join_room_callback(callback: CallbackQuery) -> None:
         return
     code = (callback.data or "").rsplit(":", 1)[-1]
     try:
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 user = callback.from_user
                 name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
@@ -200,7 +200,7 @@ async def join_room_callback(callback: CallbackQuery) -> None:
 async def refresh_room_callback(callback: CallbackQuery) -> None:
     try:
         room_id = int((callback.data or "").rsplit(":", 1)[-1])
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             room, players = await get_room_snapshot(session, room_id)
         await callback.answer("Xona yangilandi.")
         if callback.message and isinstance(callback.message, Message):
@@ -219,7 +219,7 @@ async def leave_room_callback(callback: CallbackQuery) -> None:
         return
     try:
         room_id = int((callback.data or "").rsplit(":", 1)[-1])
-        async with SessionFactory() as session:
+        async with get_session_factory()() as session:
             async with session.begin():
                 code = await leave_room(session, callback.from_user.id, room_id)
         await callback.answer("Xonadan chiqdingiz.")
