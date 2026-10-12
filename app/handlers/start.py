@@ -126,8 +126,15 @@ async def referral_handler(message: Message) -> None:
     if message.from_user is None:
         return
     referral_url = f"https://t.me/MafiaJaneUzbot?start=ref_{message.from_user.id}"
+    async with get_session_factory()() as session:
+        setting = await session.get(BotSetting, f"u:{message.from_user.id}:referrals")
+        try:
+            referral_count = len(json.loads(setting.value)) if setting else 0
+        except (ValueError, TypeError):
+            referral_count = 0
     await message.answer(
         "🔗 <b>Sizning shaxsiy taklif havolangiz</b>\n\n"
+        f"👥 Taklif orqali kelgan foydalanuvchilar: <b>{referral_count}</b>\n\n"
         "Havolani do‘stlaringizga yuboring — ular shu havola orqali botni ochishlari mumkin:\n"
         f"<code>{referral_url}</code>\n\n"
         "📤 Havolani ulashib, do‘stlaringizni MafiaUzBot’ga taklif qiling.",
