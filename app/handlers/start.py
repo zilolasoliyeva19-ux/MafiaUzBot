@@ -1,8 +1,11 @@
 from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
+import json
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from app.keyboards import main_menu_keyboard
+from app.models import BotSetting
 from app.database import get_session_factory
 from app.services.rooms import register_user
 
@@ -56,6 +59,30 @@ async def start_handler(message: Message, command: CommandObject) -> None:
         async with get_session_factory()() as session:
             async with session.begin():
                 await register_user(session, user.id, user.username, display_name or user.full_name)
+                # Record each user's first valid referral attribution once.
+                if command.args and command.args.startswith("ref_"):
+                    try:
+                        referrer_id = int(command.args[4:])
+                    except ValueError:
+                        referrer_id = 0
+                    if referrer_id and referrer_id != user.id:
+                        attribution_key = f"u:{user.id}:referred_by"
+                        attribution = await session.get(BotSetting, attribution_key)
+                        if attribution is None:
+                            session.add(BotSetting(key=attribution_key, value=str(referrer_id)))
+                            referrals_key = f"u:{referrer_id}:referrals"
+                            referrals_setting = await session.get(BotSetting, referrals_key)
+                            try:
+                                referrals = json.loads(referrals_setting.value) if referrals_setting else []
+                            except (ValueError, TypeError):
+                                referrals = []
+                            if user.id not in referrals:
+                                referrals.append(user.id)
+                            value = json.dumps(referrals)
+                            if referrals_setting is None:
+                                session.add(BotSetting(key=referrals_key, value=value))
+                            else:
+                                referrals_setting.value = value
     if command.args == "solo":
         await message.answer(
             "🤖 <b>SOLO GAME</b>\n\nO‘yinchilar sonini tanlang. O‘yin Mini App ichida ham mavjud.",
