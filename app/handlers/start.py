@@ -29,6 +29,7 @@ HELP_TEXT = (
     "/join KOD — xona kodiga qo‘shilish\n"
     "/profile — profilingiz\n"
     "/leaderboard — reyting\n"
+    "/referral — shaxsiy taklif havolangiz\n"
     "/solo — botlarga qarshi o‘ynash\n"
     "/shop — shop\n"
     "/settings — sozlamalar\n"
@@ -57,7 +58,7 @@ async def start_handler(message: Message, command: CommandObject) -> None:
                 await register_user(session, user.id, user.username, display_name or user.full_name)
     if command.args == "solo":
         await message.answer(
-            "🤖 <b>SOLO GAME</b>\\n\\nO‘yinchilar sonini tanlang. O‘yin Mini App ichida ham mavjud.",
+            "🤖 <b>SOLO GAME</b>\n\nO‘yinchilar sonini tanlang. O‘yin Mini App ichida ham mavjud.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="👥 5 kishi", callback_data="solo:setup:5"),
                  InlineKeyboardButton(text="👥 7 kishi", callback_data="solo:setup:7")],
@@ -91,3 +92,20 @@ async def help_handler(message: Message) -> None:
 @router.message(lambda message: message.text == "📜 Qoidalar")
 async def rules_handler(message: Message) -> None:
     await message.answer(RULES_TEXT, reply_markup=main_menu_keyboard())
+
+
+@router.message(Command("referral"))
+async def referral_handler(message: Message) -> None:
+    if message.from_user is None:
+        return
+    referral_url = f"https://t.me/MafiaJaneUzbot?start=ref_{message.from_user.id}"
+    await message.answer(
+        "🔗 <b>Sizning shaxsiy taklif havolangiz</b>\n\n"
+        "Havolani do‘stlaringizga yuboring — ular shu havola orqali botni ochishlari mumkin:\n"
+        f"<code>{referral_url}</code>\n\n"
+        "📤 Havolani ulashib, do‘stlaringizni MafiaUzBot’ga taklif qiling.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🤖 Botni ochish", url=referral_url)],
+            [InlineKeyboardButton(text="👥 Guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
+        ]),
+    )
