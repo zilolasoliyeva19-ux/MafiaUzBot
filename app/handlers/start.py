@@ -93,7 +93,10 @@ async def start_handler(message: Message, command: CommandObject) -> None:
             ]),
         )
         return
-    await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
+    if message.chat.type == "private":
+        await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
+    else:
+        await message.answer(WELCOME_TEXT)
     if message.chat.type == "private":
         menu_markup = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔗 Taklif havolam", callback_data="start:referral")],
