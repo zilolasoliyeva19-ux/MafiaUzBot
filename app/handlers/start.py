@@ -5,7 +5,7 @@ import json
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.keyboards import main_menu_keyboard
-from app.models import BotSetting
+from app.models import BotSetting, User
 from app.database import get_session_factory
 from app.services.rooms import register_user
 
@@ -52,22 +52,24 @@ RULES_TEXT = (
 
 @router.message(CommandStart())
 async def start_handler(message: Message, command: CommandObject) -> None:
+    referral_reward_to: int | None = None
     if message.from_user is not None:
         user = message.from_user
         display_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
         async with get_session_factory()() as session:
             async with session.begin():
                 await register_user(session, user.id, user.username, display_name or user.full_name)
-                # Record each user's first valid referral attribution once.
+                # Reward only the first valid referral from a different registered user.
                 if command.args and command.args.startswith("ref_"):
                     try:
                         referrer_id = int(command.args[4:])
                     except ValueError:
                         referrer_id = 0
                     if referrer_id and referrer_id != user.id:
+                        referrer = await session.get(User, referrer_id)
                         attribution_key = f"u:{user.id}:referred_by"
                         attribution = await session.get(BotSetting, attribution_key)
-                        if attribution is None:
+                        if referrer is not None and attribution is None:
                             session.add(BotSetting(key=attribution_key, value=str(referrer_id)))
                             referrals_key = f"u:{referrer_id}:referrals"
                             referrals_setting = await session.get(BotSetting, referrals_key)
@@ -82,6 +84,24 @@ async def start_handler(message: Message, command: CommandObject) -> None:
                                 session.add(BotSetting(key=referrals_key, value=value))
                             else:
                                 referrals_setting.value = value
+
+                            coins_key = f"u:{referrer_id}:coins"
+                            coins_setting = await session.get(BotSetting, coins_key)
+                            current_coins = int(coins_setting.value) if coins_setting else 100
+                            if coins_setting is None:
+                                session.add(BotSetting(key=coins_key, value=str(current_coins + 5)))
+                            else:
+                                coins_setting.value = str(current_coins + 5)
+                            referral_reward_to = referrer_id
+    if referral_reward_to is not None:
+        try:
+            await message.bot.send_message(
+                referral_reward_to,
+                "🎉 <b>Referral mukofoti!</b>\nDo‘stingiz MafiaUzBot’ga taklif havolangiz orqali qo‘shildi. Balansingizga <b>+5 🪙</b> qo‘shildi.",
+            )
+        except Exception:
+            pass
+
     if command.args == "solo":
         await message.answer(
             "🤖 <b>SOLO GAME</b>\n\nO‘yinchilar sonini tanlang. Telegram tugmalari orqali boshqariladi.",
