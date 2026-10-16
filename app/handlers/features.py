@@ -105,7 +105,6 @@ async def _show_profile(message: Message) -> None:
     await message.answer(
         f"👤 <b>MAFIA UZ · PROFIL</b>\n"
         f"<blockquote>Strategiyangni ko‘rsat. Har bir o‘yin seni kuchaytiradi.</blockquote>\n\n"
-        f"
         f"Ism: {escape(display_name)}\n"
         f"🆔 ID: <code>{message.from_user.id}</code>\n"
         f"🎮 O‘yinlar: <b>{games}</b>\n"
