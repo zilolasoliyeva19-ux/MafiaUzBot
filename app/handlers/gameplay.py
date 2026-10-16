@@ -163,17 +163,25 @@ async def _start_day(bot, session, room: GameRoom, game: dict, killed: int | Non
     dead_name = next((escape(p["name"]) for p in game["players"] if p["id"] == killed), None)
     news = f"☀️ <b>{game['round']}-kun boshlandi!</b>\n"
     if killed is None:
-        news += "Bu kecha hech kim nishonga olinmadi.\n"
+        news += "🌤️ Bu kecha hech kim o‘yindan chiqmadi.\n"
     elif saved:
-        news += "🩺 Doktor kimnidir qutqarib qoldi!\n"
+        news += "🩺 <b>Doktor bir o‘yinchini qutqarib qoldi!</b> Kimligi sir saqlanadi.\n"
     else:
-        news += f"💀 Kechasi {dead_name} o‘yindan chiqdi. Uning roli oshkor qilinmaydi.\n"
+        eliminated = next((p for p in game["players"] if p["id"] == killed), None)
+        role_reveal = _role_name(eliminated["role"]) if eliminated else "Noma’lum rol"
+        news += f"💀 <b>{dead_name}</b> tunda o‘yindan chiqdi. Uning roli: <b>{role_reveal}</b>.\n"
     alive = [p for p in game["players"] if p["alive"]]
     news += "\nMuhokama qiling, so‘ng kimni chiqarishni ovoz bilan tanlang."
     await _tell_all(bot, game, news)
     if killed is not None and not saved:
         try:
-            await bot.send_message(killed, "🕯️ Siz o‘yindan chiqdingiz. Istasangiz /lastwords buyrug‘i bilan oxirgi so‘zingizni yozing. Siz o‘yin natijalarini kuzatishda davom etasiz.")
+            await bot.send_message(
+                killed,
+                "🕯️ <b>Siz o‘yindan chiqdingiz.</b>\n"
+                f"🎭 Sizning rolingiz: <b>{_role_name(next((p['role'] for p in game['players'] if p['id'] == killed), 'citizen'))}</b>\n\n"
+                "✍️ Oxirgi so‘zingizni <code>/lastwords Matn</code> bilan yozing yoki <code>/skip</code> yuboring.\n"
+                "👁️ Tirik o‘yinchilarni kuzatishingiz mumkin. Kuzatishni to‘xtatish uchun /solo buyrug‘i bilan yangi o‘yin boshlang."
+            )
         except Exception:
             pass
     for player in alive:
@@ -371,10 +379,16 @@ async def day_vote(callback: CallbackQuery) -> None:
                     eliminated = next(p for p in game["players"] if p["id"] == eliminated_id)
                     eliminated["alive"] = False
                     try:
-                        await callback.bot.send_message(eliminated_id, "🕯️ Siz ovoz bilan o‘yindan chiqdingiz. Istasangiz /lastwords buyrug‘i bilan oxirgi so‘zingizni yozing. O‘yin natijalarini kuzatishda davom etishingiz mumkin.")
+                        await callback.bot.send_message(
+                            eliminated_id,
+                            "🕯️ <b>Siz ovoz bilan o‘yindan chiqdingiz.</b>\n"
+                            f"🎭 Sizning rolingiz: <b>{_role_name(eliminated['role'])}</b>\n\n"
+                            "✍️ Oxirgi so‘zingiz: <code>/lastwords Matn</code> yoki <code>/skip</code>.\n"
+                            "👁️ Siz endi kuzatuvchisiz. Yangi o‘yin uchun /solo yuboring."
+                        )
                     except Exception:
                         pass
-                    summary = f"⚖️ Ovoz natijasi: {eliminated['name']} o‘yindan chiqarildi. Rol: {_role_name(eliminated['role'])}."
+                    summary = f"⚖️ Ovoz natijasi: <b>{escape(eliminated['name'])}</b> chiqarildi. Uning roli: <b>{_role_name(eliminated['role'])}</b>."
                 else:
                     summary = "⚖️ Ovozlar teng. Hech kim o‘yindan chiqarilmadi."
                 await _tell_all(callback.bot, game, summary)
