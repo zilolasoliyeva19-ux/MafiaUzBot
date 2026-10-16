@@ -783,7 +783,7 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                     morning_lines.append(f"💀 <b>{escape(victim['name'])}</b> tunda halok bo‘ldi.")
             if not night_lines:
                 night_lines.append("🌙 Tun sokin o‘tdi.")
-            if attacks and not morning_lines and not any("qaytardi" in line.lower() for line in night_lines):
+            if attacks and not morning_lines and not any("qaytaril" in line.lower() or "qaytardi" in line.lower() for line in night_lines):
                 night_lines.append("🌘 Tun davomida hech kim o‘yindan chiqmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
