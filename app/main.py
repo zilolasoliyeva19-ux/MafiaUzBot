@@ -2,7 +2,6 @@ import logging
 import os
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -35,11 +34,8 @@ def configure_logging(level: str) -> None:
 
 
 def start_web_server() -> ThreadingHTTPServer:
-    web_root = Path(__file__).resolve().parent.parent / "webapp"
-
-    class MiniAppHandler(SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(web_root), **kwargs)
+    class HealthHandler(SimpleHTTPRequestHandler):
+        """Keep Railway's health endpoint while the optional Mini App is disabled."""
 
         def do_GET(self):
             if self.path in {"/health", "/healthz"}:
@@ -48,18 +44,16 @@ def start_web_server() -> ThreadingHTTPServer:
                 self.end_headers()
                 self.wfile.write(b'{"status":"ok","service":"MafiaUzBot"}')
                 return
-            if self.path == "/":
-                self.path = "/index.html"
-            return super().do_GET()
+            self.send_error(404, "Web App vaqtincha o‘chirilgan")
 
         def log_message(self, format, *args):
-            logging.getLogger("miniapp.http").info(format, *args)
+            logging.getLogger("health.http").info(format, *args)
 
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), MiniAppHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), HealthHandler)
     thread = threading.Thread(target=server.serve_forever, name="miniapp-http", daemon=True)
     thread.start()
-    logging.getLogger(__name__).info("MafiaUz Mini App web server listening on port %s", port)
+    logging.getLogger(__name__).info("MafiaUzBot health endpoint listening on port %s; Mini App disabled", port)
     return server
 
 
