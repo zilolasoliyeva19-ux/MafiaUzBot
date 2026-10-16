@@ -270,10 +270,11 @@ SOLO_ROLE_INFO = {
 }
 # Direct, lightweight GIPHY renditions instead of the old unverified media IDs.
 SOLO_GIF = {
-    "intro": "https://media1.giphy.com/media/vXgzDdnQ8an6sLS8CB/200.gif",
-    "night": "https://media1.giphy.com/media/UPLqiMW16vXsfpuHCP/200.gif",
-    "vote": "https://media1.giphy.com/media/iHcxDxXqOAC5o0639Q/200.gif",
-    "win": "https://media1.giphy.com/media/cZ7rmKfFYOvYI/200.gif",
+    # Direct GIF renditions for Mafia intro, night atmosphere, investigation and victory.
+    "intro": "https://media.giphy.com/media/ze5DIMqmLOKpg2yVlK/giphy.gif",
+    "night": "https://media.giphy.com/media/5xtDarISMPAiPgViP60/giphy.gif",
+    "vote": "https://media.giphy.com/media/NxXXk9WRK18wjmTOyZ/giphy.gif",
+    "win": "https://media.giphy.com/media/UrAt4W0jlp1Ksir8ls/giphy.gif",
 }
 
 
