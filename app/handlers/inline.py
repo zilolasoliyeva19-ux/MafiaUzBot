@@ -11,7 +11,6 @@ router = Router(name="inline")
 
 BOT_URL = "https://t.me/MafiaJaneUzbot"
 GROUP_URL = "https://t.me/MafiaJaneUzbot?startgroup=play"
-APP_URL = "https://mafiauzbot-production.up.railway.app"
 
 
 def _result(result_id: str, title: str, description: str, text: str, button_text: str, url: str):
@@ -86,8 +85,8 @@ async def inline_handler(query: InlineQuery) -> None:
             "🕵️ Maxsus rollar o‘z qobiliyatlaridan foydalanadi.\n"
             "🏆 Mafiya yo‘q qilinsa, tinch aholi g‘alaba qiladi.\n\n"
             "Boshlash uchun botni guruhga qo‘shing va <code>/game</code> buyrug‘ini yuboring.",
-            "🎮 Mini App’ni ochish",
-            APP_URL,
+            "🤖 Botni ochish",
+            BOT_URL,
         ),
         _result(
             "mafia_bot",
@@ -95,7 +94,7 @@ async def inline_handler(query: InlineQuery) -> None:
             "Botni ochish va o‘yinni boshlash",
             "🤖 <b>MafiaUzBot</b>\n\n"
             "👥 Guruhda <code>/game</code> — guruh o‘yini\n"
-            "🤖 Mini App — Solo rejim va boshqa funksiyalar\n"
+            "🤖 Solo Game — botlarga qarshi o‘yin\n"
             "🔐 Rollarni olish uchun botga shaxsiy chatda <code>/start</code> yuboring.",
             "🤖 Botni ochish",
             BOT_URL,
