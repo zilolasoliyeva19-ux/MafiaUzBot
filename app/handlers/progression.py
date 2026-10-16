@@ -280,15 +280,6 @@ async def battlepass_unlock_free(callback: CallbackQuery) -> None:
                     await _set(session, key, "1")
                     result = "🟢 Free Pass ochildi! Endi XP bosqichlaridan tangalarni olishingiz mumkin."
     await callback.answer(result, show_alert=True)
-    if callback.message and "ochildi" in result:
-        await battlepass(_message_proxy(callback.message, callback.from_user))
-
-
-def _message_proxy(message: Message, user) -> Message:
-    # Build no synthetic Telegram objects: only used to refresh via a direct text edit below.
-    return message
-
-
 @router.callback_query(F.data.startswith("progress:bp:"))
 async def battlepass_claim(callback: CallbackQuery) -> None:
     if not callback.from_user:
