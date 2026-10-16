@@ -92,14 +92,29 @@ async def _show_profile(message: Message) -> None:
         except ValueError:
             pass
     win_rate = round(wins * 100 / games) if games else 0
+    xp = games * 10 + wins * 25
+    level = xp // 100 + 1
+    current_level_xp = xp % 100
+    progress_blocks = current_level_xp // 10
+    progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
+    achievements = []
+    if games >= 1: achievements.append("🎮 Birinchi o‘yin")
+    if wins >= 1: achievements.append("🏆 Birinchi g‘alaba")
+    if wins >= 10: achievements.append("🔥 10 g‘alaba")
+    if games >= 25: achievements.append("🎖️ Tajribali o‘yinchi")
     await message.answer(
-        f"👤 <b>Profil</b>\n\n"
+        f"👤 <b>MAFIA UZ · PROFIL</b>\n"
+        f"<blockquote>Strategiyangni ko‘rsat. Har bir o‘yin seni kuchaytiradi.</blockquote>\n\n"
+        f"
         f"Ism: {escape(display_name)}\n"
         f"🆔 ID: <code>{message.from_user.id}</code>\n"
         f"🎮 O‘yinlar: <b>{games}</b>\n"
         f"🏆 G‘alabalar: <b>{wins}</b>\n"
         f"💔 Mag‘lubiyatlar: <b>{losses}</b>\n"
         f"📈 G‘alaba foizi: <b>{win_rate}%</b>\n"
+        f"⭐ XP: <b>{xp}</b> · 🎖️ Daraja: <b>{level}</b>\n"
+        f"{progress_bar} <code>{current_level_xp}/100 XP</code>\n"
+        f"🏅 Yutuqlar: {', '.join(achievements) if achievements else 'Hali yo‘q — birinchi o‘yinni boshlang!'}\n"
         f"🪙 Tangalar: <b>{coins}</b>\n"
         f"💎 Olmoslar: <b>{diamonds}</b>\n"
         f"👑 Premium: <b>{escape(premium_label)}</b>\n"
@@ -306,7 +321,9 @@ def _solo_keyboard(game: dict, mode: str = "vote") -> InlineKeyboardMarkup:
     for i, bot in enumerate(game["bots"]):
         if not bot["alive"]:
             continue
-        if bot.get("is_player") and mode != "vote":
+        if bot.get("is_player") and mode != "vote" and not (
+            mode == "night" and game.get("player_role") in {"doctor", "bodyguard"}
+        ):
             continue
         label = "🧑 Siz (o‘zingiz)" if bot.get("is_player") else f"{bot['emoji']} {bot['name']}"
         rows.append([InlineKeyboardButton(
@@ -506,9 +523,11 @@ async def solo_start(message: Message) -> None:
     await message.answer(
         "🎭 <b>MAFIA: SOLO CAMPAIGN</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
+        "<blockquote>Yolg‘on, kuzatuv va strategiya — har bir qaroringiz muhim.</blockquote>\n"
         "👥 Stol atrofidagi jami o‘yinchilar sonini tanlang. Siz ham shu songa kiradi.\n\n"
-        "🎲 Rolingiz tasodifiy beriladi: mafiya, Don, shifokor, detektiv, tansoqchi, manyak yoki fuqaro.\n"
-        "🌙 Tun → ☀️ muhokama va ovoz → 🏁 g‘alaba shartigacha davom etadi.",
+        "🎲 <b>Rollar:</b> mafiya, Don, shifokor, detektiv, tansoqchi, manyak yoki fuqaro.\n"
+        "🌙 <b>Tun</b> → ☀️ <i>muhokama</i> → 🗳️ <b>ovoz</b> → ⚖️ <b>sud</b> → 🏁 <b>g‘alaba</b>.\n\n"
+        "✨ <i>Matnlar qalin, kursiv, iqtibos va belgilar bilan bezatilgan.</i>",
         reply_markup=_solo_setup_keyboard(),
     )
 
@@ -604,7 +623,10 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 return
             role = player["role"]
             target = game["bots"][target_index] if target_index is not None and 0 <= target_index < len(game["bots"]) else None
-            if target_index is not None and (target is None or not target["alive"] or target.get("is_player")):
+            if target_index is not None and (
+                target is None or not target["alive"]
+                or (target.get("is_player") and role not in {"doctor", "bodyguard"})
+            ):
                 await callback.answer("Bu nishonni tanlab bo‘lmaydi.", show_alert=True)
                 return
             if role in {"mafia", "don", "maniac"} and target is None:
@@ -640,14 +662,38 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 attacks.append((target, "mafia"))
             if role == "maniac" and target:
                 attacks.append((target, "maniac"))
-            protection_target = target if role in {"doctor", "bodyguard"} else None
+            protection_targets = []
+            if role in {"doctor", "bodyguard"} and target is not None:
+                protection_targets.append(target)
+                action_label = "Shifokor" if role == "doctor" else "Tansoqchi"
+                night_lines = [f"🩺 <b>{action_label}</b> {escape(target['name'])}ni himoya qilishga ketdi."]
+            else:
+                night_lines = []
             for protector in [p for p in alive if p["role"] in {"doctor", "bodyguard"} and not p.get("is_player")]:
                 candidates = [p for p in alive if p["id"] != protector["id"]]
                 if candidates and random.random() < 0.75:
-                    if random.random() < 0.65:
-                        protection_target = random.choice(candidates)
-            night_lines = []
-            protected_ids = {protection_target["id"]} if protection_target else set()
+                    protected_target = random.choice(candidates)
+                    protection_targets.append(protected_target)
+                    action_label = "Shifokor" if protector["role"] == "doctor" else "Tansoqchi"
+                    night_lines.append(f"🩺 <b>{action_label}</b> {escape(protected_target['name'])}ni davolash/himoya qilish uchun yo‘lga chiqdi.")
+            if any(p["role"] == "detective" and not p.get("is_player") for p in alive):
+                detective = next(p for p in alive if p["role"] == "detective" and not p.get("is_player"))
+                options = [p for p in alive if p["id"] != detective["id"]]
+                if options:
+                    inspected = random.choice(options)
+                    truth = "mafiya jamoasida" if _solo_team(inspected["role"]) == "mafia" else "mafiya jamoasida emas"
+                    night_lines.append(f"🕵️ <b>Detektiv</b> {escape(inspected['name'])}ni tekshirdi — {truth}.")
+            if role == "detective" and target is not None:
+                night_lines.append(f"🕵️ Siz {escape(target['name'])}ni tekshirdingiz.")
+            mafia_attack = next((attack for attack in attacks if attack[1] == "mafia"), None)
+            if mafia_attack:
+                donor = next((p for p in mafia_team if p["role"] == "don"), None)
+                title = "Don" if donor else "Mafiya"
+                night_lines.append(f"🕴️ <b>{title}</b> o‘ljasini tanladi: <b>{escape(mafia_attack[0]['name'])}</b>.")
+            maniac_attack = next((attack for attack in attacks if attack[1] == "maniac"), None)
+            if maniac_attack:
+                night_lines.append(f"🪓 <b>Manyak</b> nishonini tanladi: <b>{escape(maniac_attack[0]['name'])}</b>.")
+            protected_ids = {p["id"] for p in protection_targets}
             seen_attacks = set()
             inventory = await _inventory(session, uid)
             for victim, source in attacks:
@@ -663,8 +709,10 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 else:
                     victim["alive"] = False
                     night_lines.append(f"💀 {victim['name']} tunda halok bo‘ldi.")
-            if not night_lines:
+            if len(night_lines) == 0:
                 night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
+            elif not any("halok bo‘ldi" in line or "qaytarildi" in line for line in night_lines):
+                night_lines.append("🌅 Hujum natijasida hech kim o‘yindan chiqmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
                 _solo_autoplay_after_elimination(game)
