@@ -214,9 +214,9 @@ async def start_room_game(bot, room_id: int) -> tuple[bool, str]:
             await _save(session, f"roomgame:{room.id}", game)
 
     for player in game_players:
-        extra = "\\nMafiya jamoadoshlari: " + ", ".join(p["name"] for p in game_players if p["role"] == MAFIA and p["id"] != player["id"]) if player["role"] == MAFIA else ""
+        extra = "\nMafiya jamoadoshlari: " + ", ".join(p["name"] for p in game_players if p["role"] == MAFIA and p["id"] != player["id"]) if player["role"] == MAFIA else ""
         try:
-            await bot.send_message(player["id"], f"🎭 <b>Sizning rolingiz:</b> {_role_name(player['role'])}\\nXona: <code>{room_code}</code>{extra}\\n\\nRolingizni sir saqlang.")
+            await bot.send_message(player["id"], f"🎭 <b>Sizning rolingiz:</b> {_role_name(player['role'])}\nXona: <code>{room_code}</code>{extra}\n\nRolingizni sir saqlang.")
         except Exception:
             pass
 
@@ -227,7 +227,7 @@ async def start_room_game(bot, room_id: int) -> tuple[bool, str]:
             if room is None or not game or game.get("status") != "active":
                 return False, "O‘yin holatini yuklab bo‘lmadi."
             await _start_night(bot, session, room, game)
-    return True, f"🎭 <b>Mafia o‘yini boshlandi!</b>\\nXona: <code>{room_code}</code>\\nRollar shaxsiy xabarlarga yuborildi."
+    return True, f"🎭 <b>Mafia o‘yini boshlandi!</b>\nXona: <code>{room_code}</code>\nRollar shaxsiy xabarlarga yuborildi."
 
 @router.callback_query(F.data.startswith("game:start:"))
 async def start_match(callback: CallbackQuery) -> None:
