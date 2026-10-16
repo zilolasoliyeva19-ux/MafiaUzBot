@@ -163,10 +163,11 @@ async def referral_handler(message: Message) -> None:
             referral_count = 0
     await message.answer(
         "🔗 <b>Sizning shaxsiy taklif havolangiz</b>\n\n"
-        f"👥 Taklif orqali kelgan foydalanuvchilar: <b>{referral_count}</b>\n\n"
-        "Havolani do‘stlaringizga yuboring — ular shu havola orqali botni ochishlari mumkin:\n"
+        f"👥 Taklif orqali kelgan foydalanuvchilar: <b>{referral_count}</b>\n"
+        "🎁 Har bir yangi foydalanuvchi birinchi marta shu havola orqali kirsa, sizga <b>+5 🪙</b> beriladi.\n\n"
+        "Havolani do‘stlaringizga yuboring:\n"
         f"<code>{referral_url}</code>\n\n"
-        "📤 Havolani ulashib, do‘stlaringizni MafiaUzBot’ga taklif qiling.",
+        "📤 Mukofot bir foydalanuvchi uchun faqat bir marta beriladi.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🤖 Botni ochish", url=referral_url)],
             [InlineKeyboardButton(text="👥 Guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
