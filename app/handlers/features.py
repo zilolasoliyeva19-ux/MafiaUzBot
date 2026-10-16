@@ -395,6 +395,14 @@ def _solo_role_plan(total: int) -> list[str]:
 
 
 def _solo_keyboard(game: dict, mode: str = "vote") -> InlineKeyboardMarkup:
+    human = next((p for p in game["bots"] if p.get("is_player")), None)
+    if human and not human.get("alive", True):
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✍️ Oxirgi so‘z", callback_data="solo:spectator:lastwords"),
+                InlineKeyboardButton(text="🚪 Kuzatuvdan chiqish", callback_data="solo:spectator:exit"),
+            ]
+        ])
     rows = []
     for i, bot in enumerate(game["bots"]):
         if not bot["alive"]:
@@ -450,7 +458,12 @@ def _solo_finish(game: dict, winner: str) -> None:
 
 def _solo_autoplay_after_elimination(game: dict) -> str:
     """Continue the bot-only match after the human player is eliminated."""
-    narration = ["👁️ Siz o‘yindan chiqdingiz. Endi qolgan o‘yinchilar avtomatik davom etadi."]
+    human = next((p for p in game["bots"] if p.get("is_player")), None)
+    role_text = _solo_role_label(human["role"]) if human else "noma’lum rol"
+    narration = [
+        f"🕯️ Siz o‘yindan chiqdingiz. Sizning rolingiz: <b>{role_text}</b>.",
+        "👁️ Qolgan o‘yinchilar o‘yinni avtomatik davom ettiradi. Oxirgi so‘zingizni aytishingiz yoki kuzatuvdan chiqishingiz mumkin."
+    ]
     for _ in range(40):
         alive = _solo_alive(game)
         winner = _solo_winner(game)
@@ -828,10 +841,36 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             await asyncio.sleep(random.uniform(1.0, 1.8))
             await callback.message.answer(event_line)
         await asyncio.sleep(0.8)
-        final_text = result_text + ("\n\n☀️ <b>Kunduzgi muhokama va ovoz!</b> Kimni sudga yuborasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
+        final_text = result_text + ("\n\n☀️ <b>Kunduzgi muhokama va ovoz!</b> Kimni sudga yuborasiz?" if game["status"] == "active" and player["alive"] else "\n\n👁️ Kuzatuvchi rejimi. Oxirgi so‘zingizni aytishingiz yoki kuzatuvdan chiqishingiz mumkin." if not player["alive"] else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
+        keyboard = _solo_keyboard(game, "vote") if not player["alive"] or game["status"] == "active" else None
+        await callback.message.answer(final_text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "solo:spectator:lastwords")
+async def solo_spectator_lastwords(callback: CallbackQuery) -> None:
+    await callback.answer("Oxirgi so‘zingizni yuborish uchun /lastwords Matn yozing. Voz kechish uchun /skip yuboring.", show_alert=True)
+
+
+@router.callback_query(F.data == "solo:spectator:exit")
+async def solo_spectator_exit(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    async with get_session_factory()() as session:
+        async with session.begin():
+            row = await session.get(BotSetting, f"u:{uid}:solo")
+            if row:
+                try:
+                    game = json.loads(row.value)
+                except (TypeError, json.JSONDecodeError):
+                    game = {}
+                human = next((p for p in game.get("bots", []) if p.get("is_player")), None)
+                if human and not human.get("alive", True):
+                    game["spectator_left"] = True
+                    row.value = json.dumps(game, ensure_ascii=False)
+    await callback.answer("Kuzatuvdan chiqdingiz. Yangi o‘yin uchun /solo yuboring.", show_alert=True)
+    if callback.message:
         await callback.message.answer(
-            final_text,
-            reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
+            "🚪 <b>Kuzatuv rejimidan chiqdingiz.</b>\n\n"
+            "O‘yin natijalari saqlanadi. Yangi o‘yin boshlash uchun /solo buyrug‘ini yuboring."
         )
 
 
