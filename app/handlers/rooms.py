@@ -282,13 +282,17 @@ def room_text(room: GameRoom, players: list, count: int | None = None) -> str:
         for player in players
     ) or "Hozircha o‘yinchilar yo‘q"
     return (
-        f"🏠 <b>Mafia xonasi: {escape(room.room_code)}</b>\n\n"
-        f"👑 Xona egasi: {owner_name}\n"
+        f"🎭 <b>MAFIA UZ · KUTISH XONASI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🔑 Xona kodi: <code>{escape(room.room_code)}</code>\n"
+        f"👑 Xona egasi: <b>{owner_name}</b>\n"
         f"👥 O‘yinchilar: <b>{actual_count}/{room.max_players}</b>\n"
-        f"🎯 Boshlash uchun: kamida {room.min_players} kishi\n"
-        f"📌 Holat: kutish xonasi\n\n"
-        f"<b>Ishtirokchilar:</b>\n{player_lines}\n\n"
-        "Xona kodi orqali do‘stlaringizni taklif qiling. Yetarli o‘yinchi yig‘ilgach, xona egasi “O‘yinni boshlash” tugmasini bosing."
+        f"🎯 Boshlash uchun: <b>{room.min_players} kishi</b>\n"
+        "📌 Holat: <b>Kutmoqda</b>\n\n"
+        "<blockquote>Do‘stlaringizni taklif qiling va strategiyangizni tayyorlang.</blockquote>\n"
+        f"<b>🪑 Ishtirokchilar</b>\n{player_lines}\n\n"
+        "▶️ Xona egasi yetarli o‘yinchi yig‘ilgach, <b>O‘yinni boshlash</b> tugmasini bosadi.\n"
+        "⌛ Yetarli o‘yinchi 5 daqiqada yig‘ilmasa, xona avtomatik yopiladi."
     )
 
 
