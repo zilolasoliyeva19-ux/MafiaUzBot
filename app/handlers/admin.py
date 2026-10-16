@@ -114,20 +114,20 @@ async def admin_actions(callback: CallbackQuery) -> None:
             recent = list((await session.scalars(
                 select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).limit(5)
             )).all())
-        banned_lines = "\\n".join(f"• <code>{user.telegram_id}</code> — {user.display_name}" for user in banned)
-        audit_lines = "\\n".join(
+        banned_lines = "\n".join(f"• <code>{user.telegram_id}</code> — {user.display_name}" for user in banned)
+        audit_lines = "\n".join(
             f"• {row.action} · <code>{row.target_id or '—'}</code>"
             for row in recent
         )
         body = (
-            "🛡️ <b>ANTI-CHEAT / XAVFSIZLIK</b>\\n\\n"
-            "✅ Takroriy ovoz va tungi amal server tomonidan rad etiladi.\\n"
-            "✅ Faqat tirik o‘yinchi, to‘g‘ri rol va to‘g‘ri bosqich amal bajarishi mumkin.\\n"
-            "✅ Bloklangan hisoblar barcha xabar va callbacklarda tekshiriladi.\\n\\n"
-            f"⛔ Bloklangan hisoblar: <b>{len(banned)}</b>\\n"
+            "🛡️ <b>ANTI-CHEAT / XAVFSIZLIK</b>\n\n"
+            "✅ Takroriy ovoz va tungi amal server tomonidan rad etiladi.\n"
+            "✅ Faqat tirik o‘yinchi, to‘g‘ri rol va to‘g‘ri bosqich amal bajarishi mumkin.\n"
+            "✅ Bloklangan hisoblar barcha xabar va callbacklarda tekshiriladi.\n\n"
+            f"⛔ Bloklangan hisoblar: <b>{len(banned)}</b>\n"
             + (banned_lines or "Hozir bloklangan hisob yo‘q.") +
-            "\\n\\n<b>Oxirgi admin amallari:</b>\\n" + (audit_lines or "Audit jurnali bo‘sh.") +
-            "\\n\\nBloklash: <code>/ban TELEGRAM_ID</code> · Ochish: <code>/unban TELEGRAM_ID</code>"
+            "\n\n<b>Oxirgi admin amallari:</b>\n" + (audit_lines or "Audit jurnali bo‘sh.") +
+            "\n\nBloklash: <code>/ban TELEGRAM_ID</code> · Ochish: <code>/unban TELEGRAM_ID</code>"
         )
     elif action == "help":
         body = (
