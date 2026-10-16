@@ -29,8 +29,9 @@ def _keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🗳️ Ovoz tizimi", callback_data="admin:votes"),
-            InlineKeyboardButton(text="❔ Buyruqlar", callback_data="admin:help"),
+            InlineKeyboardButton(text="🛡️ Anti-cheat", callback_data="admin:security"),
         ],
+        [InlineKeyboardButton(text="❔ Buyruqlar", callback_data="admin:help")],
         [InlineKeyboardButton(text="🔄 Panelni yangilash", callback_data="admin:home")],
     ])
 
@@ -105,13 +106,38 @@ async def admin_actions(callback: CallbackQuery) -> None:
             "tenglikda yoki Dislike ko‘p bo‘lsa ozod qilinadi.\n\n"
             "Ovozlar sun’iy ravishda haqiqiy foydalanuvchilar ovozi sifatida ko‘rsatilmaydi."
         )
+    elif action == "security":
+        async with get_session_factory()() as session:
+            banned = list((await session.scalars(
+                select(User).where(User.is_banned.is_(True)).order_by(User.telegram_id).limit(20)
+            )).all())
+            recent = list((await session.scalars(
+                select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).limit(5)
+            )).all())
+        banned_lines = "\\n".join(f"• <code>{user.telegram_id}</code> — {user.display_name}" for user in banned)
+        audit_lines = "\\n".join(
+            f"• {row.action} · <code>{row.target_id or '—'}</code>"
+            for row in recent
+        )
+        body = (
+            "🛡️ <b>ANTI-CHEAT / XAVFSIZLIK</b>\\n\\n"
+            "✅ Takroriy ovoz va tungi amal server tomonidan rad etiladi.\\n"
+            "✅ Faqat tirik o‘yinchi, to‘g‘ri rol va to‘g‘ri bosqich amal bajarishi mumkin.\\n"
+            "✅ Bloklangan hisoblar barcha xabar va callbacklarda tekshiriladi.\\n\\n"
+            f"⛔ Bloklangan hisoblar: <b>{len(banned)}</b>\\n"
+            + (banned_lines or "Hozir bloklangan hisob yo‘q.") +
+            "\\n\\n<b>Oxirgi admin amallari:</b>\\n" + (audit_lines or "Audit jurnali bo‘sh.") +
+            "\\n\\nBloklash: <code>/ban TELEGRAM_ID</code> · Ochish: <code>/unban TELEGRAM_ID</code>"
+        )
     elif action == "help":
         body = (
-            "🧾 <b>Admin buyruqlari</b>\n\n"
-            "/admin — panel\n"
-            "/broadcast MATN — barcha foydalanuvchilarga rasmiy xabar\n"
-            "/coins TELEGRAM_ID MIQDOR — balansni o‘zgartirish\n"
-            "Tugmalar orqali statistika, faol xonalar, tangalar va ovoz tizimi bo‘limlarini ochishingiz mumkin."
+            "🧾 <b>Admin buyruqlari</b>\\n\\n"
+            "/admin — panel\\n"
+            "/broadcast MATN — barcha foydalanuvchilarga rasmiy xabar\\n"
+            "/coins TELEGRAM_ID MIQDOR — balansni o‘zgartirish\\n"
+            "/ban TELEGRAM_ID — hisobni bloklash\\n"
+            "/unban TELEGRAM_ID — blokdan chiqarish\\n"
+            "Tugmalar orqali statistika, faol xonalar, tangalar, ovozlar va xavfsizlikni boshqarishingiz mumkin."
         )
     else:
         await callback.answer("Noma’lum amal.", show_alert=True)
@@ -186,3 +212,48 @@ async def admin_broadcast(message: Message) -> None:
         f"📣 Yuborish yakunlandi. Yetkazildi: <b>{sent}</b>, xato: <b>{failed}</b>.",
         reply_markup=_keyboard(),
     )
+
+
+@router.message(Command("ban"))
+async def admin_ban(message: Message) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.answer("⛔ Ruxsat yo‘q.")
+        return
+    try:
+        target_id = int((message.text or "").split()[1])
+    except (IndexError, ValueError):
+        await message.answer("Foydalanish: <code>/ban TELEGRAM_ID</code>")
+        return
+    if target_id == message.from_user.id:
+        await message.answer("O‘zingizni bloklay olmaysiz.")
+        return
+    async with get_session_factory()() as session:
+        async with session.begin():
+            user = await session.get(User, target_id)
+            if not user:
+                await message.answer("Foydalanuvchi topilmadi. U botga avval /start yuborgan bo‘lishi kerak.")
+                return
+            user.is_banned = True
+            session.add(AdminAuditLog(admin_id=message.from_user.id, action="ban_user", target_id=target_id, details="Admin ban"))
+    await message.answer(f"⛔ <code>{target_id}</code> bloklandi.", reply_markup=_keyboard())
+
+
+@router.message(Command("unban"))
+async def admin_unban(message: Message) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.answer("⛔ Ruxsat yo‘q.")
+        return
+    try:
+        target_id = int((message.text or "").split()[1])
+    except (IndexError, ValueError):
+        await message.answer("Foydalanish: <code>/unban TELEGRAM_ID</code>")
+        return
+    async with get_session_factory()() as session:
+        async with session.begin():
+            user = await session.get(User, target_id)
+            if not user:
+                await message.answer("Foydalanuvchi topilmadi.")
+                return
+            user.is_banned = False
+            session.add(AdminAuditLog(admin_id=message.from_user.id, action="unban_user", target_id=target_id, details="Admin unban"))
+    await message.answer(f"✅ <code>{target_id}</code> blokdan chiqarildi.", reply_markup=_keyboard())
