@@ -47,19 +47,19 @@ def group_lobby_text(room: GameRoom, players: list, seconds_left: int) -> str:
     for player in players:
         crown = " 👑" if player.telegram_id == room.owner_id else ""
         lines.append(f"• {escape(player.display_name)}{crown}")
-    roster = "\\n".join(lines) or "Hali hech kim qo‘shilmadi"
+    roster = "\n".join(lines) or "Hali hech kim qo‘shilmadi"
     minutes, seconds = divmod(max(0, seconds_left), 60)
     count = len(players)
     status = "✅ Yetarli o‘yinchi yig‘ildi" if count >= room.min_players else f"⏳ Kamida {room.min_players} kishi kerak"
     return (
-        "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\\n"
-        "━━━━━━━━━━━━━━━━━━\\n"
-        f"🏠 Xona: <code>{escape(room.room_code)}</code>\\n"
-        f"👥 O‘yinchilar: <b>{count}/{room.max_players}</b>\\n"
-        f"⏱️ Boshlanishigacha: <b>{minutes}:{seconds:02d}</b>\\n"
-        f"{status}\\n\\n"
-        "<b>Stol atrofida:</b>\\n" + roster + "\\n\\n"
-        "👇 Quyidagi tugmani bosib o‘yinga qo‘shiling.\\n"
+        "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🏠 Xona: <code>{escape(room.room_code)}</code>\n"
+        f"👥 O‘yinchilar: <b>{count}/{room.max_players}</b>\n"
+        f"⏱️ Boshlanishigacha: <b>{minutes}:{seconds:02d}</b>\n"
+        f"{status}\n\n"
+        "<b>Stol atrofida:</b>\n" + roster + "\n\n"
+        "👇 Quyidagi tugmani bosib o‘yinga qo‘shiling.\n"
         "🔐 Rollar o‘yin boshlanganda botning shaxsiy chatida yuboriladi. Botni avval /start bilan ochib qo‘ying."
     )
 
@@ -103,7 +103,7 @@ async def _group_game_countdown(bot, room_id: int) -> None:
                 chat_id=lobby["chat_id"],
                 message_id=lobby["message_id"],
                 text=(
-                    "⌛ <b>Vaqt tugadi!</b>\\n\\n"
+                    "⌛ <b>Vaqt tugadi!</b>\n\n"
                     f"O‘yinni boshlash uchun kamida <b>{room.min_players} kishi</b> kerak edi, "
                     f"ammo {count} kishi yig‘ildi. Yangi /game bilan qayta boshlashingiz mumkin."
                 ),
@@ -150,7 +150,7 @@ async def group_game_handler(message: Message) -> None:
                 )
                 room_id, room_code = room.id, room.room_code
         lobby_message = await message.answer(
-            "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\\n\\nXona tayyorlanmoqda…",
+            "🎭 <b>MAFIA UZ · GURUH O‘YINI</b>\n\nXona tayyorlanmoqda…",
             reply_markup=group_game_keyboard(room_id),
         )
         GROUP_LOBBIES[room_id] = {
