@@ -199,7 +199,11 @@ def _shop_keyboard(coins: int, diamonds: int, inventory: list[str]) -> InlineKey
         currency_icon = "💎" if item.get("currency") == "diamonds" else "🪙"
         label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} {currency_icon}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"shop:buy:{item_id}" if not owned else "shop:owned")])
-    rows.append([InlineKeyboardButton(text="🔄 Yangilash", callback_data="shop:refresh")])
+    rows.extend([
+        [InlineKeyboardButton(text="🎁 Oddiy sandiq — 100 🪙", callback_data="shop:crate:basic")],
+        [InlineKeyboardButton(text="💎 Premium sandiq — 250 🪙", callback_data="shop:crate:premium")],
+        [InlineKeyboardButton(text="🔄 Yangilash", callback_data="shop:refresh")],
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -271,6 +275,66 @@ async def shop_refresh(callback: CallbackQuery) -> None:
 async def shop_owned(callback: CallbackQuery) -> None:
     await callback.answer("Bu buyum sizda bor.")
 
+
+@router.callback_query(F.data.startswith("shop:crate:"))
+async def shop_open_crate(callback: CallbackQuery) -> None:
+    crate = (callback.data or "").rsplit(":", 1)[-1]
+    if crate not in {"basic", "premium"}:
+        await callback.answer("Sandiq turi topilmadi.", show_alert=True)
+        return
+    uid = callback.from_user.id
+    cost = 100 if crate == "basic" else 250
+    inventory = []
+    async with get_session_factory()() as session:
+        async with session.begin():
+            await _ensure_user(session, callback.from_user)
+            balance = await _coins(session, uid)
+            if balance < cost:
+                result = f"Sandiq uchun {cost} 🪙 kerak. Balansingiz: {balance} 🪙."
+            else:
+                await _set_value(session, f"u:{uid}:coins", str(balance - cost))
+                inventory = await _inventory(session, uid)
+                if crate == "basic":
+                    drops = [
+                        ("coins", 50, 40), ("coins", 100, 30),
+                        ("item", "detective_badge", 15), ("item", "ghost_emote", 10),
+                        ("diamond", 1, 5),
+                    ]
+                else:
+                    drops = [
+                        ("coins", 100, 25), ("coins", 250, 25),
+                        ("item", "vip_frame", 20), ("item", "gold_badge", 15),
+                        ("diamond", 1, 10), ("diamond", 2, 5),
+                    ]
+                kind, reward, _weight = random.choices(drops, weights=[entry[2] for entry in drops], k=1)[0]
+                if kind == "coins":
+                    balance = await _coins(session, uid) + int(reward)
+                    await _set_value(session, f"u:{uid}:coins", str(balance))
+                    result = f"🎉 Sandiqdan <b>+{reward} 🪙</b> chiqdi!"
+                elif kind == "diamond":
+                    diamonds = int(await _get_value(session, f"u:{uid}:diamonds", "0")) + int(reward)
+                    await _set_value(session, f"u:{uid}:diamonds", str(diamonds))
+                    result = f"💎 Sandiqdan <b>+{reward} olmos</b> chiqdi!"
+                else:
+                    item = SHOP_ITEMS[str(reward)]
+                    if str(reward) in inventory:
+                        balance = await _coins(session, uid) + 75
+                        await _set_value(session, f"u:{uid}:coins", str(balance))
+                        result = f"🎁 {item['name']} sizda bor ekan — uning o‘rniga +75 🪙 oldingiz."
+                    else:
+                        inventory.append(str(reward))
+                        await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
+                        result = f"🎁 Sandiqdan <b>{item['name']}</b> chiqdi!"
+    await callback.answer(result, show_alert=True)
+    if callback.message:
+        try:
+            async with get_session_factory()() as session:
+                coins = await _coins(session, uid)
+                diamonds = int(await _get_value(session, f"u:{uid}:diamonds", "0"))
+                inventory = await _inventory(session, uid)
+            await callback.message.edit_reply_markup(reply_markup=_shop_keyboard(coins, diamonds, inventory))
+        except Exception:
+            pass
 
 
 SOLO_NAMES = ["Ali", "Madina", "Jasur", "Malika", "Bekzod", "Dilnoza", "Sardor", "Zarina", "Aziz", "Mohira", "Kamron", "Sevara", "Diyor", "Nodira", "Rustam", "Shahnoza"]
