@@ -7,7 +7,12 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import ErrorEvent
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    ErrorEvent,
+)
 
 from app.config import get_settings
 from app.database import dispose_engine
@@ -58,6 +63,42 @@ def start_web_server() -> ThreadingHTTPServer:
     return server
 
 
+
+async def configure_bot_commands(bot: Bot) -> None:
+    """Set separate Telegram command menus for private chats and groups."""
+    private_commands = [
+        BotCommand(command="start", description="Asosiy menyu"),
+        BotCommand(command="solo", description="Botlarga qarshi o‘ynash"),
+        BotCommand(command="create", description="Yangi xona yaratish"),
+        BotCommand(command="join", description="Xona kodiga qo‘shilish"),
+        BotCommand(command="play", description="Ochiq xonalarni ko‘rish"),
+        BotCommand(command="profile", description="Profil va statistika"),
+        BotCommand(command="leaderboard", description="O‘yinchilar reytingi"),
+        BotCommand(command="shop", description="Do‘kon va inventar"),
+        BotCommand(command="settings", description="Sozlamalar"),
+        BotCommand(command="referral", description="Taklif havolasi"),
+        BotCommand(command="lastwords", description="Oxirgi so‘zni yozish"),
+        BotCommand(command="skip", description="Oxirgi so‘zdan voz kechish"),
+        BotCommand(command="stars", description="Stars va Premium"),
+        BotCommand(command="buycoins", description="Tangalar xarid qilish"),
+        BotCommand(command="buyvip", description="VIP xarid qilish"),
+        BotCommand(command="rules", description="O‘yin qoidalari"),
+        BotCommand(command="help", description="Yordam"),
+    ]
+    group_commands = [
+        BotCommand(command="game", description="Guruhda o‘yin boshlash"),
+        BotCommand(command="group", description="Guruh menyusi"),
+        BotCommand(command="play", description="Ochiq xonalar"),
+        BotCommand(command="create", description="Xona yaratish"),
+        BotCommand(command="join", description="Xona kodiga qo‘shilish"),
+        BotCommand(command="leave", description="Kutish xonasidan chiqish"),
+        BotCommand(command="rules", description="O‘yin qoidalari"),
+        BotCommand(command="help", description="Yordam"),
+    ]
+    await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
+    await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+
+
 async def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -68,6 +109,8 @@ async def main() -> None:
         token=settings.bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    await configure_bot_commands(bot)
+
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
     dispatcher.include_router(inline_router)
