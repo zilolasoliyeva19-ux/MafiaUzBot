@@ -26,6 +26,7 @@ from app.handlers.progression import router as progression_router
 from app.handlers.rooms import router as rooms_router
 from app.handlers.social import router as social_router
 from app.handlers.start import router as start_router
+from app.middleware import BanGuardMiddleware
 
 
 def configure_logging(level: str) -> None:
@@ -117,6 +118,8 @@ async def main() -> None:
     await configure_bot_commands(bot)
 
     dispatcher = Dispatcher()
+    dispatcher.message.outer_middleware(BanGuardMiddleware())
+    dispatcher.callback_query.outer_middleware(BanGuardMiddleware())
     dispatcher.include_router(start_router)
     dispatcher.include_router(inline_router)
     dispatcher.include_router(miniapp_router)
