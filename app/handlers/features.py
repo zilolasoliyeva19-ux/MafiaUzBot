@@ -26,6 +26,9 @@ SHOP_ITEMS = {
     "ghost_emote": {"name": "👻 Arvoh emojisi", "price": 120, "description": "Profilingizda ko‘rinadigan arvoh emojisi."},
     "diamond_crown": {"name": "💎 Olmos toj", "price": 2, "currency": "diamonds", "description": "2 olmos evaziga profil bezagi."},
     "premium_frame": {"name": "👑 Premium ramka", "price": 3, "currency": "diamonds", "description": "3 olmos evaziga maxsus profil ramkasi."},
+    "premium_title": {"name": "💠 Afsonaviy unvon", "price": 700, "pass_required": True, "description": "Premium Pass egalariga maxsus profil unvoni; tangaga olinadi."},
+    "mafia_aura": {"name": "🌌 Mafia aurasi", "price": 1200, "pass_required": True, "description": "Premium Pass egalariga noyob profil bezagi; tangaga olinadi."},
+    "legendary_emote": {"name": "🔥 Afsonaviy emote", "price": 900, "pass_required": True, "description": "Premium Pass egalariga maxsus emote; tangaga olinadi."},
 }
 
 
@@ -197,7 +200,8 @@ def _shop_keyboard(coins: int, diamonds: int, inventory: list[str]) -> InlineKey
     for item_id, item in SHOP_ITEMS.items():
         owned = item_id in inventory
         currency_icon = "💎" if item.get("currency") == "diamonds" else "🪙"
-        label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} {currency_icon}"
+        pass_icon = " 💎" if item.get("pass_required") else ""
+        label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} {currency_icon}{pass_icon}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"shop:buy:{item_id}" if not owned else "shop:owned")])
     rows.extend([
         [InlineKeyboardButton(text="🎁 Oddiy sandiq — 100 🪙", callback_data="shop:crate:basic")],
@@ -240,9 +244,19 @@ async def shop_buy(callback: CallbackQuery) -> None:
             diamonds = int(await _get_value(session, f"u:{callback.from_user.id}:diamonds", "0"))
             inventory = await _inventory(session, callback.from_user.id)
             currency = item.get("currency", "coins")
-            balance = diamonds if currency == "diamonds" else coins
+            if item.get("pass_required"):
+                month = datetime.now(timezone.utc).strftime("%Y-%m")
+                if await _get_value(session, f"u:{callback.from_user.id}:bp_premium:{month}", "0") != "1":
+                    result = "💎 Bu buyumlar faqat Premium Pass egalariga ochiq. /battlepass orqali 30 ⭐ ga oling."
+                    balance = coins
+                else:
+                    balance = diamonds if currency == "diamonds" else coins
+            else:
+                balance = diamonds if currency == "diamonds" else coins
             currency_key = f"u:{callback.from_user.id}:diamonds" if currency == "diamonds" else f"u:{callback.from_user.id}:coins"
-            if item_id in inventory:
+            if item.get("pass_required") and await _get_value(session, f"u:{callback.from_user.id}:bp_premium:{datetime.now(timezone.utc).strftime('%Y-%m')}", "0") != "1":
+                result = "💎 Bu buyumlar faqat Premium Pass egalariga ochiq. /battlepass orqali 30 ⭐ ga oling."
+            elif item_id in inventory:
                 result = "Siz bu buyumni oldin olgansiz."
             elif balance < item["price"]:
                 result = "Olmos yetarli emas." if currency == "diamonds" else "Tangalar yetarli emas. Solo Game o‘ynab tanga yig‘ing."
