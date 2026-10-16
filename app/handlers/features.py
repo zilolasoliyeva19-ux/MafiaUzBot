@@ -802,7 +802,8 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                         await _set_value(session, f"u:{uid}:coins", str(await _coins(session, uid) + reward))
                     else:
                         user.losses += 1
-            result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
+            private_result = result_text
+            result_text = "🌅 <b>TONG XABARI</b>"
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
     await callback.answer("Kuzatuv rejimi davom etmoqda..." if spectator_messages else "Tun yakunlandi.")
@@ -811,14 +812,18 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             await asyncio.sleep(random.uniform(1.2, 2.4))
             await callback.message.answer(event_line)
     if callback.message:
-        final_text = result_text + ("\n\n☀️ <b>Kunduzgi ovoz:</b> kimni chiqarasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
-        try:
-            await callback.message.answer_animation(
-                animation=SOLO_GIF["night"], caption=final_text,
-                reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
-            )
-        except Exception:
-            await callback.message.answer(final_text, reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None)
+        # Reveal night events one by one to make the Solo game feel alive.
+        if private_result:
+            await callback.message.answer(private_result)
+        for event_line in game.get("log", []):
+            await asyncio.sleep(random.uniform(1.0, 1.8))
+            await callback.message.answer(event_line)
+        await asyncio.sleep(0.8)
+        final_text = result_text + ("\n\n☀️ <b>Kunduzgi muhokama va ovoz!</b> Kimni sudga yuborasiz?" if game["status"] == "active" else "\n\n🎮 Yangi o‘yin uchun /solo buyrug‘ini yuboring.")
+        await callback.message.answer(
+            final_text,
+            reply_markup=_solo_keyboard(game, "vote") if game["status"] == "active" else None,
+        )
 
 
 @router.callback_query(F.data.startswith("solo:vote:"))
