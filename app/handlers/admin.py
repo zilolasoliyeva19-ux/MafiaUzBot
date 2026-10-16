@@ -1,7 +1,9 @@
 import asyncio
 import json
+from html import escape
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
@@ -42,8 +44,14 @@ async def admin_panel(message: Message) -> None:
         await message.answer("⛔ Bu bo‘lim faqat administratorlar uchun.")
         return
     await message.answer(
-        "🛠️ <b>MafiaUzBot — Admin panel</b>\n\n"
-        "Kerakli bo‘limni tugma orqali tanlang. O‘zgarishlar audit jurnaliga yoziladi.",
+        "🛠️ <b>MAFIA UZ · ADMINISTRATOR PANELI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "<blockquote>Bot boshqaruvi, statistika va xavfsizlik — barchasi bitta joyda.</blockquote>\n\n"
+        "📊 <b>Statistika</b> — foydalanuvchilar va o‘yinlar\n"
+        "🎮 <b>Faol o‘yinlar</b> — hozirgi xonalar\n"
+        "🪙 <b>Iqtisod</b> — tangalarni boshqarish\n"
+        "🛡️ <b>Xavfsizlik</b> — anti-cheat va audit\n\n"
+        "<i>Bo‘limni tugma orqali tanlang. Muhim admin amallari audit jurnalida qayd etiladi.</i>",
         reply_markup=_keyboard(),
     )
 
@@ -56,9 +64,22 @@ async def admin_actions(callback: CallbackQuery) -> None:
     action = (callback.data or "").split(":", 1)[1]
 
     if action == "home":
-        await callback.answer("Panel yangilandi.")
+        await callback.answer("Bosh sahifa ochildi.")
         if callback.message:
-            await callback.message.answer("🛠️ <b>Admin panel</b>", reply_markup=_keyboard())
+            try:
+                await callback.message.edit_text(
+                    "🛠️ <b>MAFIA UZ · ADMINISTRATOR PANELI</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    "<blockquote>Bot boshqaruvi, statistika va xavfsizlik — barchasi bitta joyda.</blockquote>\n\n"
+                    "📊 <b>Statistika</b> — foydalanuvchilar va o‘yinlar\n"
+                    "🎮 <b>Faol o‘yinlar</b> — hozirgi xonalar\n"
+                    "🪙 <b>Iqtisod</b> — tangalarni boshqarish\n"
+                    "🛡️ <b>Xavfsizlik</b> — anti-cheat va audit\n\n"
+                    "<i>Bo‘limni tugma orqali tanlang. Muhim admin amallari audit jurnalida qayd etiladi.</i>",
+                    reply_markup=_keyboard(),
+                )
+            except TelegramBadRequest:
+                pass
         return
 
     if action == "stats":
@@ -114,9 +135,12 @@ async def admin_actions(callback: CallbackQuery) -> None:
             recent = list((await session.scalars(
                 select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).limit(5)
             )).all())
-        banned_lines = "\n".join(f"• <code>{user.telegram_id}</code> — {user.display_name}" for user in banned)
+        banned_lines = "\n".join(
+            f"• <code>{user.telegram_id}</code> — {escape(user.display_name)}"
+            for user in banned
+        )
         audit_lines = "\n".join(
-            f"• {row.action} · <code>{row.target_id or '—'}</code>"
+            f"• {escape(row.action)} · <code>{row.target_id or '—'}</code>"
             for row in recent
         )
         body = (
@@ -131,21 +155,27 @@ async def admin_actions(callback: CallbackQuery) -> None:
         )
     elif action == "help":
         body = (
-            "🧾 <b>Admin buyruqlari</b>\\n\\n"
-            "/admin — panel\\n"
-            "/broadcast MATN — barcha foydalanuvchilarga rasmiy xabar\\n"
-            "/coins TELEGRAM_ID MIQDOR — balansni o‘zgartirish\\n"
-            "/ban TELEGRAM_ID — hisobni bloklash\\n"
-            "/unban TELEGRAM_ID — blokdan chiqarish\\n"
-            "Tugmalar orqali statistika, faol xonalar, tangalar, ovozlar va xavfsizlikni boshqarishingiz mumkin."
+            "🧾 <b>ADMIN BUYRUQLARI</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "<code>/admin</code> — boshqaruv paneli\n"
+            "<code>/broadcast MATN</code> — xabar yuborish\n"
+            "<code>/coins ID MIQDOR</code> — balansni o‘zgartirish\n"
+            "<code>/ban ID</code> — hisobni bloklash\n"
+            "<code>/unban ID</code> — blokdan chiqarish\n\n"
+            "<i>Har bir muhim boshqaruv amali audit jurnaliga yoziladi.</i>"
         )
     else:
         await callback.answer("Noma’lum amal.", show_alert=True)
         return
 
+    body = "🛠️ <b>MAFIA UZ · ADMINISTRATOR</b>\n━━━━━━━━━━━━━━━━━━\n\n" + body
     await callback.answer()
     if callback.message:
-        await callback.message.answer(body, reply_markup=_keyboard())
+        try:
+            await callback.message.edit_text(body, reply_markup=_keyboard())
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                await callback.message.answer(body, reply_markup=_keyboard())
 
 
 @router.message(Command("coins"))
