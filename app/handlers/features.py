@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+from datetime import datetime, timezone
 from html import escape
 
 from aiogram import F, Router
@@ -22,7 +23,8 @@ SHOP_ITEMS = {
     "gold_badge": {"name": "🥇 Oltin nishon", "price": 300, "description": "Profilingizda ko‘rinadigan oltin nishon."},
     "neon_theme": {"name": "🌌 Neon mavzu", "price": 220, "description": "Profilingizda ko‘rinadigan neon uslubi."},
     "ghost_emote": {"name": "👻 Arvoh emojisi", "price": 120, "description": "Profilingizda ko‘rinadigan arvoh emojisi."},
-    "diamond_crown": {"name": "💎 Olmos toj", "price": 500, "description": "Profilingizda ko‘rinadigan olmos toj."},
+    "diamond_crown": {"name": "💎 Olmos toj", "price": 2, "currency": "diamonds", "description": "2 olmos evaziga profil bezagi."},
+    "premium_frame": {"name": "👑 Premium ramka", "price": 3, "currency": "diamonds", "description": "3 olmos evaziga maxsus profil ramkasi."},
 }
 
 
@@ -52,6 +54,19 @@ async def _inventory(session, user_id: int) -> list[str]:
     return json.loads(await _get_value(session, f"u:{user_id}:items", "[]"))
 
 
+async def _premium_active(session, user_id: int) -> bool:
+    raw = await _get_value(session, f"u:{user_id}:premium_until", "")
+    if not raw:
+        return False
+    try:
+        until = datetime.fromisoformat(raw)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        return until > datetime.now(timezone.utc)
+    except ValueError:
+        return False
+
+
 async def _show_profile(message: Message) -> None:
     if message.from_user is None:
         return
@@ -59,9 +74,23 @@ async def _show_profile(message: Message) -> None:
         async with session.begin():
             user = await _ensure_user(session, message.from_user)
             coins = await _coins(session, user.telegram_id)
+            diamonds = int(await _get_value(session, f"u:{user.telegram_id}:diamonds", "0"))
             inventory = await _inventory(session, user.telegram_id)
+            premium_until = await _get_value(session, f"u:{user.telegram_id}:premium_until", "")
             games, wins, losses = user.games_played, user.wins, user.losses
             display_name = user.display_name
+    premium_active = False
+    premium_label = "Faol emas"
+    if premium_until:
+        try:
+            parsed_until = datetime.fromisoformat(premium_until)
+            if parsed_until.tzinfo is None:
+                parsed_until = parsed_until.replace(tzinfo=timezone.utc)
+            premium_active = parsed_until > datetime.now(timezone.utc)
+            if premium_active:
+                premium_label = f"Faol · {parsed_until.strftime('%Y-%m-%d')} gacha"
+        except ValueError:
+            pass
     win_rate = round(wins * 100 / games) if games else 0
     await message.answer(
         f"👤 <b>Profil</b>\n\n"
@@ -72,6 +101,8 @@ async def _show_profile(message: Message) -> None:
         f"💔 Mag‘lubiyatlar: <b>{losses}</b>\n"
         f"📈 G‘alaba foizi: <b>{win_rate}%</b>\n"
         f"🪙 Tangalar: <b>{coins}</b>\n"
+        f"💎 Olmoslar: <b>{diamonds}</b>\n"
+        f"👑 Premium: <b>{escape(premium_label)}</b>\n"
         f"🎒 Buyumlar ({len(inventory)}): " + (", ".join(SHOP_ITEMS[item_id]["name"] for item_id in inventory if item_id in SHOP_ITEMS) or "hali yo‘q"),
         reply_markup=main_menu_keyboard(),
     )
@@ -146,11 +177,12 @@ async def toggle_notifications(callback: CallbackQuery) -> None:
     await callback.answer("Bildirishnoma sozlamasi saqlandi.")
 
 
-def _shop_keyboard(coins: int, inventory: list[str]) -> InlineKeyboardMarkup:
+def _shop_keyboard(coins: int, diamonds: int, inventory: list[str]) -> InlineKeyboardMarkup:
     rows = []
     for item_id, item in SHOP_ITEMS.items():
         owned = item_id in inventory
-        label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} 🪙"
+        currency_icon = "💎" if item.get("currency") == "diamonds" else "🪙"
+        label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} {currency_icon}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"shop:buy:{item_id}" if not owned else "shop:owned")])
     rows.append([InlineKeyboardButton(text="🔄 Yangilash", callback_data="shop:refresh")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -163,9 +195,16 @@ async def shop_handler(message: Message) -> None:
         return
     async with get_session_factory()() as session:
         coins = await _coins(session, message.from_user.id)
+        diamonds = int(await _get_value(session, f"u:{message.from_user.id}:diamonds", "0"))
         inventory = await _inventory(session, message.from_user.id)
-    details = "\n".join(f"{item['name']} — {item['price']} 🪙\n   {item['description']}" for item in SHOP_ITEMS.values())
-    await message.answer(f"🛒 <b>Shop</b>\nBalansingiz: <b>{coins} 🪙</b>\n\n{details}", reply_markup=_shop_keyboard(coins, inventory))
+    details = "\n".join(
+        f"{item['name']} — {item['price']} {'💎' if item.get('currency') == 'diamonds' else '🪙'}\n   {item['description']}"
+        for item in SHOP_ITEMS.values()
+    )
+    await message.answer(
+        f"🛒 <b>MAFIA SHOP</b>\nBalans: <b>{coins} 🪙</b> · <b>{diamonds} 💎</b>\n\n{details}",
+        reply_markup=_shop_keyboard(coins, diamonds, inventory),
+    )
 
 
 @router.callback_query(F.data.startswith("shop:buy:"))
@@ -179,19 +218,26 @@ async def shop_buy(callback: CallbackQuery) -> None:
         async with session.begin():
             await _ensure_user(session, callback.from_user)
             coins = await _coins(session, callback.from_user.id)
+            diamonds = int(await _get_value(session, f"u:{callback.from_user.id}:diamonds", "0"))
             inventory = await _inventory(session, callback.from_user.id)
+            currency = item.get("currency", "coins")
+            balance = diamonds if currency == "diamonds" else coins
+            currency_key = f"u:{callback.from_user.id}:diamonds" if currency == "diamonds" else f"u:{callback.from_user.id}:coins"
             if item_id in inventory:
                 result = "Siz bu buyumni oldin olgansiz."
-            elif coins < item["price"]:
-                result = "Tangalar yetarli emas. Solo Game o‘ynab tanga yig‘ing."
+            elif balance < item["price"]:
+                result = "Olmos yetarli emas." if currency == "diamonds" else "Tangalar yetarli emas. Solo Game o‘ynab tanga yig‘ing."
             else:
                 inventory.append(item_id)
-                await _set_value(session, f"u:{callback.from_user.id}:coins", str(coins - item["price"]))
-                await _set_value(session, f"u:{callback.from_user.id}:items", json.dumps(inventory))
-                coins -= item["price"]
+                await _set_value(session, currency_key, str(balance - item["price"]))
+                await _set_value(session, f"u:{callback.from_user.id}:items", json.dumps(inventory, ensure_ascii=False))
+                if currency == "diamonds":
+                    diamonds -= item["price"]
+                else:
+                    coins -= item["price"]
                 result = f"{item['name']} sotib olindi!"
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=_shop_keyboard(coins, inventory))
+        await callback.message.edit_reply_markup(reply_markup=_shop_keyboard(coins, diamonds, inventory))
     await callback.answer(result, show_alert=True)
 
 
@@ -199,9 +245,10 @@ async def shop_buy(callback: CallbackQuery) -> None:
 async def shop_refresh(callback: CallbackQuery) -> None:
     async with get_session_factory()() as session:
         coins = await _coins(session, callback.from_user.id)
+        diamonds = int(await _get_value(session, f"u:{callback.from_user.id}:diamonds", "0"))
         inventory = await _inventory(session, callback.from_user.id)
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=_shop_keyboard(coins, inventory))
+        await callback.message.edit_reply_markup(reply_markup=_shop_keyboard(coins, diamonds, inventory))
     await callback.answer("Shop yangilandi.")
 
 
@@ -636,7 +683,8 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                     user.games_played += 1
                     if player["alive"] and winner == _solo_team(player["role"]):
                         user.wins += 1
-                        await _set_value(session, f"u:{uid}:coins", str(await _coins(session, uid) + 50))
+                        reward = 65 if await _premium_active(session, uid) else 50
+                        await _set_value(session, f"u:{uid}:coins", str(await _coins(session, uid) + reward))
                     else:
                         user.losses += 1
             result_text += ("\n\n" if result_text else "") + "🌅 <b>TONG XABARI</b>\n" + "\n".join(night_lines)
@@ -878,9 +926,10 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                     user.games_played += 1
                     if winner == _solo_team(player["role"]) and not target_is_player:
                         user.wins += 1
-                        coins = await _coins(session, uid) + 50
+                        reward = 65 if await _premium_active(session, uid) else 50
+                        coins = await _coins(session, uid) + reward
                         await _set_value(session, f"u:{uid}:coins", str(coins))
-                        result_text += "\n\n🏆 <b>G‘ALABA!</b> +50 🪙"
+                        result_text += f"\n\n🏆 <b>G‘ALABA!</b> +{reward} 🪙" + (" · 👑 Premium bonus" if reward > 50 else "")
                     else:
                         user.losses += 1
                         result_text += "\n\n💔 <b>O‘YIN TUGADI.</b>"
