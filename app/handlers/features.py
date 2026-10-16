@@ -741,36 +741,30 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             if role == "maniac" and target:
                 attacks.append((target, "maniac"))
             protection_targets = []
+            night_lines = []
+            morning_lines = []
             if role in {"doctor", "bodyguard"} and target is not None:
                 protection_targets.append(target)
                 action_label = "Shifokor" if role == "doctor" else "Tansoqchi"
-                night_lines = [f"🩺 <b>{action_label}</b> {escape(target['name'])}ni himoya qilishga ketdi."]
-            else:
-                night_lines = []
+                night_lines.append(f"🩺 <b>{action_label}</b> davolash/himoya qilish uchun yo‘lga chiqdi.")
             for protector in [p for p in alive if p["role"] in {"doctor", "bodyguard"} and not p.get("is_player")]:
                 candidates = [p for p in alive if p["id"] != protector["id"]]
                 if candidates and random.random() < 0.75:
-                    protected_target = random.choice(candidates)
-                    protection_targets.append(protected_target)
+                    protection_targets.append(random.choice(candidates))
                     action_label = "Shifokor" if protector["role"] == "doctor" else "Tansoqchi"
-                    night_lines.append(f"🩺 <b>{action_label}</b> {escape(protected_target['name'])}ni davolash/himoya qilish uchun yo‘lga chiqdi.")
+                    night_lines.append(f"🩺 <b>{action_label}</b> davolash/himoya qilish uchun yo‘lga chiqdi.")
             if any(p["role"] == "detective" and not p.get("is_player") for p in alive):
-                detective = next(p for p in alive if p["role"] == "detective" and not p.get("is_player"))
-                options = [p for p in alive if p["id"] != detective["id"]]
-                if options:
-                    inspected = random.choice(options)
-                    truth = "mafiya jamoasida" if _solo_team(inspected["role"]) == "mafia" else "mafiya jamoasida emas"
-                    night_lines.append(f"🕵️ <b>Detektiv</b> {escape(inspected['name'])}ni tekshirdi — {truth}.")
+                night_lines.append("🕵️ <b>Detektiv</b> yashirin tekshiruvga ketdi.")
             if role == "detective" and target is not None:
-                night_lines.append(f"🕵️ Siz {escape(target['name'])}ni tekshirdingiz.")
+                night_lines.append("🕵️ Siz tanlagan o‘yinchini yashirin tekshirdingiz.")
             mafia_attack = next((attack for attack in attacks if attack[1] == "mafia"), None)
             if mafia_attack:
                 donor = next((p for p in mafia_team if p["role"] == "don"), None)
                 title = "Don" if donor else "Mafiya"
-                night_lines.append(f"🕴️ <b>{title}</b> o‘ljasini tanladi: <b>{escape(mafia_attack[0]['name'])}</b>.")
+                night_lines.append(f"🕴️ <b>{title}</b> o‘ljasini tanladi.")
             maniac_attack = next((attack for attack in attacks if attack[1] == "maniac"), None)
             if maniac_attack:
-                night_lines.append(f"🪓 <b>Manyak</b> nishonini tanladi: <b>{escape(maniac_attack[0]['name'])}</b>.")
+                night_lines.append("🪓 <b>Manyak</b> nishon tanladi.")
             protected_ids = {p["id"] for p in protection_targets}
             seen_attacks = set()
             inventory = await _inventory(session, uid)
@@ -779,18 +773,18 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                     continue
                 seen_attacks.add(victim["id"])
                 if victim["id"] in protected_ids:
-                    night_lines.append(f"🛡️ {victim['name']}ga qilingan hujum qaytarildi.")
+                    night_lines.append("🛡️ Bir hujum qaytarildi.")
                 elif victim.get("is_player") and "lucky_charm" in inventory:
                     inventory.remove("lucky_charm")
                     await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
-                    night_lines.append("🍀 Omad tumori ishga tushdi! Sizga qilingan halokatli zarba qaytarildi. Tumor ishlatildi.")
+                    night_lines.append("🍀 Omad tumori sizga qilingan hujumni qaytardi. Tumor ishlatildi.")
                 else:
                     victim["alive"] = False
-                    night_lines.append(f"💀 {victim['name']} tunda halok bo‘ldi.")
-            if len(night_lines) == 0:
-                night_lines.append("🌅 Tun tinch o‘tdi — hech kim halok bo‘lmadi.")
-            elif not any("halok bo‘ldi" in line or "qaytarildi" in line for line in night_lines):
-                night_lines.append("🌅 Hujum natijasida hech kim o‘yindan chiqmadi.")
+                    morning_lines.append(f"💀 <b>{escape(victim['name'])}</b> tunda halok bo‘ldi.")
+            if not night_lines:
+                night_lines.append("🌙 Tun sokin o‘tdi.")
+            if attacks and not morning_lines and not any("qaytardi" in line.lower() for line in night_lines):
+                night_lines.append("🌘 Tun davomida hech kim o‘yindan chiqmadi.")
             winner = _solo_winner(game)
             if not player["alive"] and not winner:
                 _solo_autoplay_after_elimination(game)
@@ -820,6 +814,7 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
             result_text = "🌅 <b>TONG XABARI</b>"
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
+            result_text += "\n\n" + ("\n".join(morning_lines) if morning_lines else "🌤️ Bu tun hech kim o‘yindan chiqmadi.")
     await callback.answer("Kuzatuv rejimi davom etmoqda..." if spectator_messages else "Tun yakunlandi.")
     if callback.message and spectator_messages:
         for event_line in spectator_messages:
