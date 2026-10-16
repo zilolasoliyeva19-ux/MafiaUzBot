@@ -33,6 +33,42 @@ router = Router(name="rooms")
 
 
 GROUP_LOBBIES: dict[int, dict] = {}
+ROOM_EXPIRY_TASKS: dict[int, asyncio.Task] = {}
+
+
+async def _expire_idle_room(bot, room_id: int, owner_id: int) -> None:
+    """Close a private/public lobby after five minutes if it never fills enough to start."""
+    try:
+        await asyncio.sleep(300)
+        expired = False
+        minimum = 4
+        async with get_session_factory()() as session:
+            async with session.begin():
+                room = await session.get(GameRoom, room_id, with_for_update=True)
+                if room is None or room.status != "lobby":
+                    return
+                minimum = room.min_players
+                _, players = await get_room_snapshot(session, room_id)
+                if len(players) < minimum:
+                    room.status = "cancelled"
+                    expired = True
+        if expired:
+            try:
+                await bot.send_message(
+                    owner_id,
+                    "⌛ <b>MAFIA UZ · XONA YOPILDI</b>\n\n"
+                    f"Xonada {minimum} nafar o‘yinchi yig‘ilmadi, shuning uchun 5 daqiqadan so‘ng avtomatik yopildi.\n"
+                    "🎮 Yangi xona ochish uchun /create buyrug‘ini yuboring."
+                )
+            except Exception:
+                pass
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Room expiry failed for room %s", room_id)
+    finally:
+        ROOM_EXPIRY_TASKS.pop(room_id, None)
 
 
 def group_game_keyboard(room_id: int) -> InlineKeyboardMarkup:
@@ -290,10 +326,19 @@ async def create_room_handler(message: Message) -> None:
                 room_id = room.id
                 room_code = room.room_code
         await message.answer(
-            f"✅ Xona yaratildi! Kodi: <code>{escape(room_code)}</code>\n"
-            "Do‘stlaringizga kodni yuboring yoki quyidagi xabarni ulashing."
+            f"🏠 <b>YANGI MAFIA XONASI</b>\n"
+            f"🔑 Xona kodi: <code>{escape(room_code)}</code>\n\n"
+            "Do‘stlaringizga kodni yuboring yoki quyidagi xabarni ulashing.\n"
+            "⏳ Yetarli o‘yinchi 5 daqiqada yig‘ilmasa, xona avtomatik yopiladi."
         )
         await _show_room(message, room_id)
+        old_task = ROOM_EXPIRY_TASKS.pop(room_id, None)
+        if old_task:
+            old_task.cancel()
+        ROOM_EXPIRY_TASKS[room_id] = asyncio.create_task(
+            _expire_idle_room(message.bot, room_id, user_id),
+            name=f"mafia-room-expiry-{room_id}",
+        )
     except RoomError as exc:
         await message.answer(f"⚠️ {escape(str(exc))}")
     except Exception:
