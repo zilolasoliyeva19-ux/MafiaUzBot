@@ -11,10 +11,8 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
 )
-from sqlalchemy import select
-
 from app.database import get_session_factory
-from app.models import BotSetting, User
+from app.models import BotSetting
 
 router = Router(name="payments")
 
