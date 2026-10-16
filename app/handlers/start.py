@@ -2,7 +2,7 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
 import json
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.keyboards import main_menu_keyboard
 from app.models import BotSetting
@@ -22,8 +22,7 @@ WELCOME_TEXT = (
 HELP_TEXT = (
     "🆘 <b>Yordam</b>\n\n"
     "/start — asosiy menyu\n"
-    "/app — MafiaUz Mini App\n"
-    "/group — guruh uchun inline menyu\n"
+    "/group — guruh menyusi\n"
     "Inline rejim — istalgan chatda @MafiaJaneUzbot deb yozing\n"
     "/game — guruhda 90 soniyalik o‘yin ochish (kamida 4 kishi)\n"
     "/help — yordam\n"
@@ -85,28 +84,28 @@ async def start_handler(message: Message, command: CommandObject) -> None:
                                 referrals_setting.value = value
     if command.args == "solo":
         await message.answer(
-            "🤖 <b>SOLO GAME</b>\n\nO‘yinchilar sonini tanlang. O‘yin Mini App ichida ham mavjud.",
+            "🤖 <b>SOLO GAME</b>\n\nO‘yinchilar sonini tanlang. Telegram tugmalari orqali boshqariladi.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="👥 5 kishi", callback_data="solo:setup:5"),
                  InlineKeyboardButton(text="👥 7 kishi", callback_data="solo:setup:7")],
                 [InlineKeyboardButton(text="👥 9 kishi", callback_data="solo:setup:9"),
                  InlineKeyboardButton(text="👥 12 kishi", callback_data="solo:setup:12")],
-                [InlineKeyboardButton(text="✨ Mini App’da o‘ynash", web_app=WebAppInfo(url="https://mafiauzbot-production.up.railway.app"))],
             ]),
         )
         return
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
     if message.chat.type == "private":
-        app_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✨ MafiaUz Mini App’ni ochish", web_app=WebAppInfo(url="https://mafiauzbot-production.up.railway.app"))],
+        menu_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 Taklif havolam", callback_data="start:referral")],
             [InlineKeyboardButton(text="👥 Botni guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
         ])
+        await message.answer("✨ <b>Tezkor menyu</b>\nKerakli bo‘limni tanlang yoki pastdagi buyruqlar menyusidan foydalaning.", reply_markup=menu_markup)
     else:
-        app_markup = InlineKeyboardMarkup(inline_keyboard=[
+        menu_markup = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🎮 Guruh menyusi", callback_data="group:menu")],
             [InlineKeyboardButton(text="➕ Botni boshqa guruhga qo‘shish", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
         ])
-    await message.answer("✨ <b>MafiaUz Mini App</b> — o‘yinlar, profil va Shop.", reply_markup=app_markup)
+        await message.answer("🎭 <b>Guruh boshqaruvi</b>\nO‘yinni boshlash uchun /game yuboring yoki guruh menyusini oching.", reply_markup=menu_markup)
 
 
 @router.message(Command("help"))
@@ -119,6 +118,13 @@ async def help_handler(message: Message) -> None:
 @router.message(lambda message: message.text == "📜 Qoidalar")
 async def rules_handler(message: Message) -> None:
     await message.answer(RULES_TEXT, reply_markup=main_menu_keyboard())
+
+
+@router.callback_query(lambda callback: callback.data == "start:referral")
+async def referral_callback(callback) -> None:
+    if callback.message is not None:
+        await referral_handler(callback.message)
+    await callback.answer()
 
 
 @router.message(Command("referral"))
