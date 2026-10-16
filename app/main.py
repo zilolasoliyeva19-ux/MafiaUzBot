@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.database import dispose_engine
 from app.handlers.admin import router as admin_router
 from app.handlers.features import router as features_router
+from app.handlers.friends import router as friends_router
 from app.handlers.gameplay import router as gameplay_router
 from app.handlers.inline import router as inline_router
 from app.handlers.miniapp import router as miniapp_router
@@ -72,6 +73,10 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="achievements", description="Yutuqlar va medallar"),
         BotCommand(command="battlepass", description="Mavsumiy Battle Pass"),
         BotCommand(command="season", description="Joriy mavsum reytingi"),
+        BotCommand(command="friends", description="Do‘stlar ro‘yxati"),
+        BotCommand(command="friendadd", description="Username orqali do‘st qo‘shish"),
+        BotCommand(command="friendaccept", description="Do‘stlik so‘rovini qabul qilish"),
+        BotCommand(command="friendremove", description="Do‘stni ro‘yxatdan o‘chirish"),
         BotCommand(command="leaderboard", description="O‘yinchilar reytingi"),
         BotCommand(command="shop", description="Do‘kon va inventar"),
         BotCommand(command="settings", description="Sozlamalar"),
@@ -118,6 +123,7 @@ async def main() -> None:
     dispatcher.include_router(admin_router)
     dispatcher.include_router(payments_router)
     dispatcher.include_router(progression_router)
+    dispatcher.include_router(friends_router)
     dispatcher.include_router(social_router)
     dispatcher.include_router(features_router)
     dispatcher.include_router(rooms_router)
