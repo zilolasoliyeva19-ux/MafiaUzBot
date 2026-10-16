@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.database import get_session_factory
 from app.keyboards import main_menu_keyboard
 from app.models import BotSetting, User
+from app.progression import record_match_progress
 from app.services.rooms import register_user
 
 router = Router(name="features")
@@ -729,7 +730,9 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                 user = await session.get(User, uid)
                 if user:
                     user.games_played += 1
-                    if player["alive"] and winner == _solo_team(player["role"]):
+                    player_won = player["alive"] and winner == _solo_team(player["role"])
+                    await record_match_progress(session, uid, player_won)
+                    if player_won:
                         user.wins += 1
                         reward = 65 if await _premium_active(session, uid) else 50
                         await _set_value(session, f"u:{uid}:coins", str(await _coins(session, uid) + reward))
@@ -972,7 +975,9 @@ async def solo_trial_react(callback: CallbackQuery) -> None:
                 user = await session.get(User, uid)
                 if user:
                     user.games_played += 1
-                    if winner == _solo_team(player["role"]) and not target_is_player:
+                    player_won = winner == _solo_team(player["role"]) and not target_is_player
+                    await record_match_progress(session, uid, player_won)
+                    if player_won:
                         user.wins += 1
                         reward = 65 if await _premium_active(session, uid) else 50
                         coins = await _coins(session, uid) + reward
