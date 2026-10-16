@@ -824,6 +824,12 @@ async def _solo_process_night(callback: CallbackQuery, target_index: int | None)
                     else:
                         user.losses += 1
             private_result = result_text
+            if not player["alive"] and winner:
+                private_result += (
+                    "\n\n🕯️ <b>Sizning rolingiz:</b> "
+                    f"<b>{_solo_role_label(player['role'])}</b>. "
+                    "Oxirgi so‘zingizni /lastwords Matn bilan yuboring yoki /skip yozing."
+                )
             result_text = "🌅 <b>TONG XABARI</b>"
             if winner:
                 result_text += "\n\n" + ("🏆 <b>SHAHAR G‘ALABA QOZONDI!</b>" if winner == "town" else "💀 <b>MAFIYA G‘ALABA QOZONDI!</b>" if winner == "mafia" else "🪓 <b>MANYAK YUTDI!</b>")
