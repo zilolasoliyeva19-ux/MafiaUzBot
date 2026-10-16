@@ -92,6 +92,12 @@ async def _buy_product(callback: CallbackQuery, product: str, quantity: int) -> 
     elif product == "premium" and quantity == PREMIUM_DAYS:
         await _invoice(callback.message, "premium", PREMIUM_DAYS, "MafiaUzBot Premium", f"{PREMIUM_DAYS} kunlik Premium maqom va qo‘shimcha imtiyozlar.", PREMIUM_STARS)
     elif product == "battlepass" and quantity == 30:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        async with get_session_factory()() as session:
+            already_owned = await session.get(BotSetting, f"u:{callback.from_user.id}:bp_premium:{month}")
+        if already_owned and already_owned.value == "1":
+            await callback.answer("Sizda bu mavsumning Premium Pass’i allaqachon bor.", show_alert=True)
+            return
         await _invoice(callback.message, "battlepass", 30, "MafiaUzBot Premium Pass", "Joriy mavsum uchun Premium Battle Pass va maxsus mukofotlar.", 30)
     else:
         await callback.answer("Mahsulot topilmadi.", show_alert=True)
