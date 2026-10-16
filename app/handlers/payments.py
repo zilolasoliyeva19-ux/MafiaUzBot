@@ -2,8 +2,15 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
-from aiogram.filters import Command
-from aiogram.types import LabeledPrice, Message, PreCheckoutQuery
+from aiogram.filters import Command, CommandObject
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LabeledPrice,
+    Message,
+    PreCheckoutQuery,
+)
 from sqlalchemy import select
 
 from app.database import get_session_factory
@@ -11,21 +18,55 @@ from app.models import BotSetting, User
 
 router = Router(name="payments")
 
+PREMIUM_DAYS = 30
+PREMIUM_STARS = 50
+MAX_COIN_PURCHASE = 10000
+
+
+def _stars_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🪙 10 tanga · 10 ⭐", callback_data="stars:buy:coins:10"),
+            InlineKeyboardButton(text="🪙 50 tanga · 50 ⭐", callback_data="stars:buy:coins:50"),
+        ],
+        [
+            InlineKeyboardButton(text="🪙 100 tanga · 100 ⭐", callback_data="stars:buy:coins:100"),
+            InlineKeyboardButton(text="💎 1 olmos · 2 ⭐", callback_data="stars:buy:diamond:1"),
+        ],
+        [InlineKeyboardButton(text="👑 Premium · 50 ⭐ / 30 kun", callback_data="stars:buy:premium:30")],
+    ])
+
 
 @router.message(Command("stars"))
 @router.message(F.text == "⭐ Stars / Premium")
 async def stars_shop(message: Message) -> None:
     await message.answer(
-        "⭐ <b>MafiaUzBot Premium</b>\n\n"
-        "🪙 <b>1 000 tanga</b> — 50 Telegram Stars\n"
-        "👑 <b>VIP 30 kun</b> — 100 Telegram Stars\n\n"
-        "Xarid qilish uchun buyruqlardan foydalaning:\n"
-        "/buycoins — 1 000 tanga\n"
-        "/buyvip — 30 kunlik VIP"
+        "✨ <b>MAFIA UZ — STARS DO‘KONI</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🪙 <b>1 ⭐ = 1 tanga</b>\n"
+        "💎 <b>2 ⭐ = 1 olmos</b>\n"
+        f"👑 <b>Premium — {PREMIUM_STARS} ⭐ / {PREMIUM_DAYS} kun</b>\n\n"
+        "Premium imtiyozlari:\n"
+        "• 👑 Profilingizda Premium belgisi\n"
+        "• 🎁 G‘alaba uchun 25% ko‘proq tanga\n"
+        "• 💎 Maxsus olmosli buyumlar\n\n"
+        "Pastdan kerakli mahsulotni tanlang. Tangani boshqa miqdorda olish uchun "
+        "<code>/buycoins 250</code> kabi yozing.",
+        reply_markup=_stars_keyboard(),
     )
 
 
-async def _invoice(message: Message, payload: str, title: str, description: str, stars: int) -> None:
+async def _invoice(
+    message: Message,
+    product: str,
+    quantity: int,
+    title: str,
+    description: str,
+    stars: int,
+) -> None:
+    if message.from_user is None:
+        return
+    payload = f"stars:{product}:{quantity}:{message.from_user.id}"
     await message.answer_invoice(
         title=title,
         description=description,
@@ -36,34 +77,109 @@ async def _invoice(message: Message, payload: str, title: str, description: str,
     )
 
 
+async def _buy_product(callback: CallbackQuery, product: str, quantity: int) -> None:
+    if callback.message is None:
+        await callback.answer("Xarid oynasini ochib bo‘lmadi.", show_alert=True)
+        return
+    if product == "coins":
+        if quantity < 1 or quantity > MAX_COIN_PURCHASE:
+            await callback.answer("Tanga miqdori 1–10000 oralig‘ida bo‘lsin.", show_alert=True)
+            return
+        await _invoice(callback.message, "coins", quantity, f"{quantity} tanga", f"Balansingizga {quantity} tanga qo‘shiladi.", quantity)
+    elif product == "diamond":
+        if quantity < 1 or quantity > 1000:
+            await callback.answer("Olmos miqdori noto‘g‘ri.", show_alert=True)
+            return
+        await _invoice(callback.message, "diamond", quantity, f"{quantity} olmos", f"Balansingizga {quantity} olmos qo‘shiladi.", quantity * 2)
+    elif product == "premium" and quantity == PREMIUM_DAYS:
+        await _invoice(callback.message, "premium", PREMIUM_DAYS, "MafiaUzBot Premium", f"{PREMIUM_DAYS} kunlik Premium maqom va qo‘shimcha imtiyozlar.", PREMIUM_STARS)
+    else:
+        await callback.answer("Mahsulot topilmadi.", show_alert=True)
+        return
+    await callback.answer("To‘lov oynasi ochildi.")
+
+
+@router.callback_query(F.data.startswith("stars:buy:"))
+async def stars_buy_callback(callback: CallbackQuery) -> None:
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4:
+        await callback.answer("Mahsulot ma’lumoti noto‘g‘ri.", show_alert=True)
+        return
+    try:
+        quantity = int(parts[3])
+    except ValueError:
+        await callback.answer("Miqdor noto‘g‘ri.", show_alert=True)
+        return
+    await _buy_product(callback, parts[2], quantity)
+
+
 @router.message(Command("buycoins"))
-async def buy_coins(message: Message) -> None:
-    if message.from_user:
-        await _invoice(message, f"stars:coins1000:{message.from_user.id}",
-                       "1 000 o‘yin tangasi", "MafiaUzBot balansiga 1 000 tanga qo‘shiladi.", 50)
+async def buy_coins(message: Message, command: CommandObject) -> None:
+    raw = command.args.strip() if command.args else "100"
+    try:
+        quantity = int(raw)
+    except ValueError:
+        await message.answer("Foydalanish: <code>/buycoins 100</code> — 100 tanga = 100 ⭐.")
+        return
+    if quantity < 1 or quantity > MAX_COIN_PURCHASE:
+        await message.answer("1–10000 tanga oralig‘ini tanlang.")
+        return
+    await _invoice(message, "coins", quantity, f"{quantity} tanga", f"Balansingizga {quantity} tanga qo‘shiladi.", quantity)
+
+
+@router.message(Command("buydiamond"))
+async def buy_diamond(message: Message, command: CommandObject) -> None:
+    raw = command.args.strip() if command.args else "1"
+    try:
+        quantity = int(raw)
+    except ValueError:
+        await message.answer("Foydalanish: <code>/buydiamond 1</code> — 1 olmos = 2 ⭐.")
+        return
+    if quantity < 1 or quantity > 1000:
+        await message.answer("1–1000 olmos oralig‘ini tanlang.")
+        return
+    await _invoice(message, "diamond", quantity, f"{quantity} olmos", f"Balansingizga {quantity} olmos qo‘shiladi.", quantity * 2)
 
 
 @router.message(Command("buyvip"))
-async def buy_vip(message: Message) -> None:
-    if message.from_user:
-        await _invoice(message, f"stars:vip30:{message.from_user.id}",
-                       "VIP — 30 kun", "Profilingizga 30 kunlik VIP maqom beriladi.", 100)
+@router.message(Command("buypremium"))
+async def buy_premium(message: Message) -> None:
+    await _invoice(
+        message, "premium", PREMIUM_DAYS, "MafiaUzBot Premium",
+        f"{PREMIUM_DAYS} kunlik Premium maqom va qo‘shimcha imtiyozlar.", PREMIUM_STARS,
+    )
+
+
+def _expected_stars(product: str, quantity: int) -> int | None:
+    if product == "coins" and 1 <= quantity <= MAX_COIN_PURCHASE:
+        return quantity
+    if product == "diamond" and 1 <= quantity <= 1000:
+        return quantity * 2
+    if product == "premium" and quantity == PREMIUM_DAYS:
+        return PREMIUM_STARS
+    return None
 
 
 @router.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery) -> None:
-    payload = query.invoice_payload
-    parts = payload.split(":")
-    valid = (
-        query.currency == "XTR"
-        and len(parts) == 3
-        and parts[0] == "stars"
-        and parts[2].isdigit()
-        and int(parts[2]) == query.from_user.id
-        and ((parts[1] == "coins1000" and query.total_amount == 50)
-             or (parts[1] == "vip30" and query.total_amount == 100))
+    parts = query.invoice_payload.split(":")
+    valid = False
+    if len(parts) == 4 and parts[0] == "stars" and parts[3].isdigit():
+        try:
+            quantity = int(parts[2])
+            expected = _expected_stars(parts[1], quantity)
+            valid = (
+                query.currency == "XTR"
+                and int(parts[3]) == query.from_user.id
+                and expected is not None
+                and query.total_amount == expected
+            )
+        except ValueError:
+            valid = False
+    await query.answer(
+        ok=valid,
+        error_message=None if valid else "To‘lov ma’lumotlari noto‘g‘ri. Qayta urinib ko‘ring.",
     )
-    await query.answer(ok=valid, error_message=None if valid else "To‘lov ma’lumotlari noto‘g‘ri. Qayta urinib ko‘ring.")
 
 
 @router.message(F.successful_payment)
@@ -71,50 +187,79 @@ async def successful_payment(message: Message) -> None:
     payment = message.successful_payment
     if not message.from_user or not payment:
         return
-    payload = payment.invoice_payload.split(":")
-    if len(payload) != 3 or payload[0] != "stars" or not payload[2].isdigit():
+
+    parts = payment.invoice_payload.split(":")
+    if len(parts) != 4 or parts[0] != "stars" or not parts[3].isdigit():
         return
     uid = message.from_user.id
-    if int(payload[2]) != uid or payment.currency != "XTR":
+    if int(parts[3]) != uid or payment.currency != "XTR":
         return
+    try:
+        quantity = int(parts[2])
+    except ValueError:
+        return
+    expected = _expected_stars(parts[1], quantity)
+    if expected is None or payment.total_amount != expected:
+        await message.answer("⚠️ To‘lov ma’lumoti mos kelmadi. Yordam uchun administratorga yozing.")
+        return
+
     charge_key = f"payment:charge:{payment.telegram_payment_charge_id}"
+    now = datetime.now(timezone.utc)
     async with get_session_factory()() as session:
         async with session.begin():
             if await session.get(BotSetting, charge_key):
                 await message.answer("✅ Bu to‘lov oldin qayta ishlangan.")
                 return
+
             session.add(BotSetting(key=charge_key, value=json.dumps({
-                "user_id": uid, "payload": payment.invoice_payload, "amount": payment.total_amount,
-                "paid_at": datetime.now(timezone.utc).isoformat(),
+                "user_id": uid,
+                "payload": payment.invoice_payload,
+                "amount": payment.total_amount,
+                "paid_at": now.isoformat(),
             })))
-            user = await session.get(User, uid)
-            if payload[1] == "coins1000" and payment.total_amount == 50:
+
+            if parts[1] == "coins":
                 key = f"u:{uid}:coins"
                 row = await session.get(BotSetting, key)
-                coins = int(row.value) if row else 100
+                balance = int(row.value) if row else 100
                 if row is None:
-                    session.add(BotSetting(key=key, value=str(coins + 1000)))
+                    session.add(BotSetting(key=key, value=str(balance + quantity)))
                 else:
-                    row.value = str(coins + 1000)
-                reply = "🎉 To‘lov muvaffaqiyatli! Balansingizga 1 000 🪙 qo‘shildi."
-            elif payload[1] == "vip30" and payment.total_amount == 100:
-                key = f"u:{uid}:vip_until"
+                    row.value = str(balance + quantity)
+                reply = f"🎉 Xarid muvaffaqiyatli! Balansingizga <b>+{quantity} 🪙</b> qo‘shildi."
+
+            elif parts[1] == "diamond":
+                key = f"u:{uid}:diamonds"
                 row = await session.get(BotSetting, key)
-                now = datetime.now(timezone.utc)
+                balance = int(row.value) if row else 0
+                if row is None:
+                    session.add(BotSetting(key=key, value=str(balance + quantity)))
+                else:
+                    row.value = str(balance + quantity)
+                reply = f"💎 Xarid muvaffaqiyatli! Balansingizga <b>+{quantity} olmos</b> qo‘shildi."
+
+            else:
+                key = f"u:{uid}:premium_until"
+                row = await session.get(BotSetting, key)
                 old_until = None
                 if row:
                     try:
                         old_until = datetime.fromisoformat(row.value)
+                        if old_until.tzinfo is None:
+                            old_until = old_until.replace(tzinfo=timezone.utc)
                     except ValueError:
                         old_until = None
                 base = old_until if old_until and old_until > now else now
-                until = base + timedelta(days=30)
+                until = base + timedelta(days=PREMIUM_DAYS)
                 if row is None:
                     session.add(BotSetting(key=key, value=until.isoformat()))
                 else:
                     row.value = until.isoformat()
-                reply = f"👑 VIP faollashtirildi! Amal qilish muddati: <b>{until.strftime('%Y-%m-%d %H:%M UTC')}</b>."
-            else:
-                await message.answer("⚠️ To‘lov qabul qilindi, lekin mahsulot mos kelmadi. Administratorga murojaat qiling.")
-                return
-    await message.answer(reply)
+                reply = (
+                    "👑 <b>PREMIUM FAOLLASHTIRILDI!</b>\n\n"
+                    f"✨ Imtiyozlar {PREMIUM_DAYS} kun davomida faol.\n"
+                    f"📅 Tugash vaqti: <code>{until.strftime('%Y-%m-%d %H:%M UTC')}</code>\n"
+                    "🎁 G‘alabalar uchun 25% ko‘proq tanga olasiz."
+                )
+
+    await message.answer(reply, reply_markup=_stars_keyboard())
