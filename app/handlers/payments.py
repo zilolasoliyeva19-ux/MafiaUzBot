@@ -91,6 +91,8 @@ async def _buy_product(callback: CallbackQuery, product: str, quantity: int) -> 
         await _invoice(callback.message, "diamond", quantity, f"{quantity} olmos", f"Balansingizga {quantity} olmos qo‘shiladi.", quantity * 2)
     elif product == "premium" and quantity == PREMIUM_DAYS:
         await _invoice(callback.message, "premium", PREMIUM_DAYS, "MafiaUzBot Premium", f"{PREMIUM_DAYS} kunlik Premium maqom va qo‘shimcha imtiyozlar.", PREMIUM_STARS)
+    elif product == "battlepass" and quantity == 30:
+        await _invoice(callback.message, "battlepass", 30, "MafiaUzBot Premium Pass", "Joriy mavsum uchun Premium Battle Pass va maxsus mukofotlar.", 30)
     else:
         await callback.answer("Mahsulot topilmadi.", show_alert=True)
         return
@@ -155,6 +157,8 @@ def _expected_stars(product: str, quantity: int) -> int | None:
         return quantity * 2
     if product == "premium" and quantity == PREMIUM_DAYS:
         return PREMIUM_STARS
+    if product == "battlepass" and quantity == 30:
+        return 30
     return None
 
 
@@ -236,6 +240,19 @@ async def successful_payment(message: Message) -> None:
                     row.value = str(balance + quantity)
                 reply = f"💎 Xarid muvaffaqiyatli! Balansingizga <b>+{quantity} olmos</b> qo‘shildi."
 
+            elif parts[1] == "battlepass":
+                season = now.strftime("%Y-%m")
+                key = f"u:{uid}:bp_premium:{season}"
+                row = await session.get(BotSetting, key)
+                if row is None:
+                    session.add(BotSetting(key=key, value="1"))
+                else:
+                    row.value = "1"
+                reply = (
+                    "💎 <b>PREMIUM BATTLE PASS OCHILDI!</b>\n\n"
+                    "🎟️ Joriy mavsumdagi Premium mukofotlar ochildi.\n"
+                    "🎁 /battlepass orqali mukofotlarni ko‘ring."
+                )
             else:
                 key = f"u:{uid}:premium_until"
                 row = await session.get(BotSetting, key)
