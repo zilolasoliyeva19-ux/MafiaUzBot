@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models import BotSetting, GameMatch, GameParticipant, GameRoom, User
+from app.progression import record_match_progress
 
 router = Router(name="gameplay")
 MAFIA = "mafia"
@@ -98,7 +99,9 @@ async def _finish(bot, session, room: GameRoom, game: dict, winner: str) -> None
         db_user = await session.get(User, player["id"])
         if db_user:
             db_user.games_played += 1
-            if (winner == "mafia" and player["role"] == MAFIA) or (winner == "citizens" and player["role"] != MAFIA):
+            player_won = (winner == "mafia" and player["role"] == MAFIA) or (winner == "citizens" and player["role"] != MAFIA)
+            await record_match_progress(session, player["id"], player_won)
+            if player_won:
                 db_user.wins += 1
                 key = f"u:{player['id']}:coins"
                 wallet = await session.get(BotSetting, key)
