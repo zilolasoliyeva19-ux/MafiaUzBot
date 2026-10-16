@@ -163,14 +163,41 @@ async def achievements(message: Message) -> None:
     )
 
 
-_BATTLEPASS_TIERS = [(100, 25), (250, 50), (500, 100), (800, 150), (1200, 250)]
+_BATTLEPASS_TIERS = [
+    {"xp": 100, "free": ("coins", 50), "premium": ("coins", 100)},
+    {"xp": 250, "free": ("coins", 100), "premium": ("diamond", 1)},
+    {"xp": 500, "free": ("coins", 150), "premium": ("item", "vip_frame")},
+    {"xp": 800, "free": ("coins", 250), "premium": ("item", "gold_badge")},
+    {"xp": 1200, "free": ("coins", 400), "premium": ("item", "premium_frame")},
+]
+_FREE_PASS_COST = 500
+_PREMIUM_PASS_STARS = 30
 
 
-def _battlepass_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🎁 {xp} XP · {coins} 🪙", callback_data=f"progress:bp:{i}")]
-        for i, (xp, coins) in enumerate(_BATTLEPASS_TIERS, 1)
-    ])
+def _battlepass_keyboard(free_pass: bool, premium_pass: bool) -> InlineKeyboardMarkup:
+    rows = []
+    if not free_pass:
+        rows.append([InlineKeyboardButton(
+            text=f"🟢 Free Pass ochish · {_FREE_PASS_COST} 🪙",
+            callback_data="progress:bp:unlock_free",
+        )])
+    if not premium_pass:
+        rows.append([InlineKeyboardButton(
+            text=f"💎 Premium Pass · {_PREMIUM_PASS_STARS} ⭐",
+            callback_data="stars:buy:battlepass:30",
+        )])
+    for i, tier in enumerate(_BATTLEPASS_TIERS, 1):
+        rows.append([
+            InlineKeyboardButton(
+                text=f"🟢 Free #{i} · {tier['xp']} XP",
+                callback_data=f"progress:bp:free:{i}",
+            ),
+            InlineKeyboardButton(
+                text=f"💎 Premium #{i} · {tier['xp']} XP",
+                callback_data=f"progress:bp:premium:{i}",
+            ),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.message(Command("battlepass"))
@@ -178,62 +205,153 @@ def _battlepass_keyboard() -> InlineKeyboardMarkup:
 async def battlepass(message: Message) -> None:
     if not message.from_user:
         return
+    uid = message.from_user.id
+    month = _season()
     async with get_session_factory()() as session:
-        user = await session.get(User, message.from_user.id)
-        raw_claims = await _value(session, f"u:{message.from_user.id}:bp_claims:{_season()}", "[]")
+        user = await session.get(User, uid)
+        raw_free_claims = await _value(session, f"u:{uid}:bp_free_claims:{month}", "[]")
+        raw_premium_claims = await _value(session, f"u:{uid}:bp_premium_claims:{month}", "[]")
+        free_pass = await _value(session, f"u:{uid}:bp_free:{month}", "0") == "1"
+        premium_pass = await _value(session, f"u:{uid}:bp_premium:{month}", "0") == "1"
+        coins = int(await _value(session, f"u:{uid}:coins", "100"))
     if not user:
         await message.answer("Avval /start buyrug‘ini yuboring.")
         return
     try:
-        claims = json.loads(raw_claims)
+        free_claims = json.loads(raw_free_claims)
+        premium_claims = json.loads(raw_premium_claims)
     except (TypeError, json.JSONDecodeError):
-        claims = []
+        free_claims, premium_claims = [], []
     xp = _xp(user)
-    tiers = "\n".join(
-        f"{'✅' if str(i) in claims else ('🎁' if xp >= needed else '🔒')} {needed} XP → {coins} 🪙"
-        for i, (needed, coins) in enumerate(_BATTLEPASS_TIERS, 1)
-    )
+    lines = []
+    for i, tier in enumerate(_BATTLEPASS_TIERS, 1):
+        needed = tier["xp"]
+        free_reward = tier["free"]
+        premium_reward = tier["premium"]
+        free_label = f"+{free_reward[1]} 🪙" if free_reward[0] == "coins" else f"+{free_reward[1]} olmos"
+        premium_labels = {
+            ("coins", 100): "+100 🪙",
+            ("diamond", 1): "+1 💎",
+            ("item", "vip_frame"): "👑 VIP ramka",
+            ("item", "gold_badge"): "🥇 Oltin nishon",
+            ("item", "premium_frame"): "💠 Premium ramka",
+        }
+        premium_label = premium_labels.get(premium_reward, "maxsus sovg‘a")
+        free_state = "✅ olindi" if str(i) in free_claims else ("🎁 tayyor" if xp >= needed else "🔒")
+        premium_state = "✅ olindi" if str(i) in premium_claims else ("🎁 tayyor" if xp >= needed else "🔒")
+        lines.append(
+            f"<b>#{i} · {needed} XP</b>\n"
+            f"🟢 Free: {free_label} — {free_state}\n"
+            f"💎 Premium: {premium_label} — {premium_state}"
+        )
+    free_status = "🟢 <b>OCHIQ</b>" if free_pass else f"🔒 <b>YOPIQ</b> · {_FREE_PASS_COST} 🪙"
+    premium_status = "💎 <b>OCHIQ</b>" if premium_pass else f"🔒 <b>YOPIQ</b> · {_PREMIUM_PASS_STARS} ⭐"
     await message.answer(
-        f"🎟️ <b>BATTLE PASS · {_season()}</b>\n"
-        f"⭐ XP: <b>{xp}</b>\n\n{tiers}\n\n"
-        "Mukofotni olish uchun tegishli tugmani bosing. Har bir bosqich faqat bir marta olinadi.",
-        reply_markup=_battlepass_keyboard(),
+        f"🎟️ <b>MAFIA UZ · BATTLE PASS</b>\n"
+        f"<blockquote>Har bir o‘yin XP beradi. Darajalarni ochib, ikki yo‘nalishda sovg‘a yig‘ing!</blockquote>\n\n"
+        f"📅 Mavsum: <code>{month}</code>\n"
+        f"⭐ Sizning XP: <b>{xp}</b>\n"
+        f"🪙 Balans: <b>{coins}</b>\n\n"
+        f"🟢 <b>FREE PASS:</b> {free_status}\n"
+        f"💎 <b>PREMIUM PASS:</b> {premium_status}\n\n"
+        + "\n\n".join(lines)
+        + "\n\n<i>Free Pass bir mavsum uchun tangaga ochiladi. Premium Pass 30 ⭐ turadi va VIP buyumlar beradi.</i>",
+        reply_markup=_battlepass_keyboard(free_pass, premium_pass),
     )
+
+
+@router.callback_query(F.data == "progress:bp:unlock_free")
+async def battlepass_unlock_free(callback: CallbackQuery) -> None:
+    if not callback.from_user:
+        return
+    uid = callback.from_user.id
+    month = _season()
+    async with get_session_factory()() as session:
+        async with session.begin():
+            key = f"u:{uid}:bp_free:{month}"
+            if await _value(session, key, "0") == "1":
+                result = "Free Pass bu mavsumda allaqachon ochilgan."
+            else:
+                balance = int(await _value(session, f"u:{uid}:coins", "100"))
+                if balance < _FREE_PASS_COST:
+                    result = f"Free Pass uchun {_FREE_PASS_COST} 🪙 kerak. Sizda {balance} 🪙 bor."
+                else:
+                    await _set(session, f"u:{uid}:coins", str(balance - _FREE_PASS_COST))
+                    await _set(session, key, "1")
+                    result = "🟢 Free Pass ochildi! Endi XP bosqichlaridan tangalarni olishingiz mumkin."
+    await callback.answer(result, show_alert=True)
+    if callback.message and "ochildi" in result:
+        await battlepass(_message_proxy(callback.message, callback.from_user))
+
+
+def _message_proxy(message: Message, user) -> Message:
+    # Build no synthetic Telegram objects: only used to refresh via a direct text edit below.
+    return message
 
 
 @router.callback_query(F.data.startswith("progress:bp:"))
 async def battlepass_claim(callback: CallbackQuery) -> None:
     if not callback.from_user:
         return
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4 or parts[2] not in {"free", "premium"}:
+        await callback.answer("Battle Pass tugmasi noto‘g‘ri.", show_alert=True)
+        return
+    track = parts[2]
     try:
-        tier = int((callback.data or "").rsplit(":", 1)[-1])
-        needed, reward = _BATTLEPASS_TIERS[tier - 1]
+        tier_index = int(parts[3])
+        tier = _BATTLEPASS_TIERS[tier_index - 1]
     except (ValueError, IndexError):
         await callback.answer("Battle Pass bosqichi noto‘g‘ri.", show_alert=True)
         return
     uid = callback.from_user.id
     month = _season()
+    needed = tier["xp"]
+    reward_type, reward_value = tier[track]
     async with get_session_factory()() as session:
         async with session.begin():
             user = await session.get(User, uid)
             if not user:
                 await callback.answer("Avval /start buyrug‘ini yuboring.", show_alert=True)
                 return
-            if _xp(user) < needed:
-                result = f"Bu bosqich uchun {needed} XP kerak."
+            pass_key = f"u:{uid}:bp_{track}:{month}"
+            if await _value(session, pass_key, "0") != "1":
+                result = "Avval shu passni oching."
+            elif _xp(user) < needed:
+                result = f"Bu mukofot uchun {needed} XP kerak."
             else:
-                key = f"u:{uid}:bp_claims:{month}"
+                claims_key = f"u:{uid}:bp_{track}_claims:{month}"
                 try:
-                    claims = json.loads(await _value(session, key, "[]"))
+                    claims = json.loads(await _value(session, claims_key, "[]"))
                 except (TypeError, json.JSONDecodeError):
                     claims = []
-                if str(tier) in claims:
-                    result = "Bu mukofotni allaqachon olgansiz."
+                if str(tier_index) in claims:
+                    result = "Bu mukofotni oldin olgansiz."
                 else:
-                    claims.append(str(tier))
-                    await _set(session, key, json.dumps(claims))
-                    balance = await _add_coins(session, uid, reward)
-                    result = f"🎉 Battle Pass mukofoti: +{reward} 🪙. Balans: {balance} 🪙"
+                    if reward_type == "coins":
+                        balance = await _add_coins(session, uid, int(reward_value))
+                        result = f"🎉 {track.title()} Pass mukofoti: +{reward_value} 🪙. Balans: {balance} 🪙"
+                    elif reward_type == "diamond":
+                        key = f"u:{uid}:diamonds"
+                        diamonds = int(await _value(session, key, "0")) + int(reward_value)
+                        await _set(session, key, str(diamonds))
+                        result = f"💎 Premium Pass mukofoti: +{reward_value} olmos."
+                    else:
+                        item_key = f"u:{uid}:items"
+                        try:
+                            inventory = json.loads(await _value(session, item_key, "[]"))
+                        except (TypeError, json.JSONDecodeError):
+                            inventory = []
+                        item_id = str(reward_value)
+                        if item_id in inventory:
+                            balance = await _add_coins(session, uid, 100)
+                            result = f"Buyum sizda bor ekan — o‘rniga +100 🪙. Balans: {balance} 🪙"
+                        else:
+                            inventory.append(item_id)
+                            await _set(session, item_key, json.dumps(inventory, ensure_ascii=False))
+                            result = f"🎁 Premium Pass sovg‘asi olindi: <b>{item_id}</b>"
+                    claims.append(str(tier_index))
+                    await _set(session, claims_key, json.dumps(claims))
     await callback.answer(result, show_alert=True)
 
 
