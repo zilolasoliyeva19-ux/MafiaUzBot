@@ -7,13 +7,14 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
-    WebAppInfo,
+    ChatMemberUpdated,
 )
 
 from app.config import get_settings
 from app.database import get_session_factory
 from app.services.rooms import RoomError, create_room, list_public_rooms, register_user
 from app.handlers.rooms import room_keyboard, room_text
+from app.keyboards import main_menu_keyboard
 
 router = Router(name="miniapp")
 
@@ -24,8 +25,8 @@ BOT_URL = "https://t.me/MafiaJaneUzbot"
 def miniapp_keyboard(private: bool = True) -> InlineKeyboardMarkup:
     if private:
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✨ MafiaUz Mini App’ni ochish", web_app=WebAppInfo(url=MINI_APP_URL))],
-            [InlineKeyboardButton(text="👥 Guruhga qo‘shish", url=f"https://t.me/MafiaJaneUzbot?startgroup=play")],
+            [InlineKeyboardButton(text="🎭 Guruh o‘yinini boshlash", url="https://t.me/MafiaJaneUzbot?startgroup=play")],
+            [InlineKeyboardButton(text="🤖 Botni ochish", url=BOT_URL)],
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎭 Botni shaxsiy chatda ochish", url=BOT_URL)],
@@ -39,25 +40,16 @@ def group_keyboard() -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="🎮 Ochiq xonalar", callback_data="group:rooms")],
         [InlineKeyboardButton(text="📜 Qoidalar", callback_data="group:rules"),
          InlineKeyboardButton(text="🤖 Solo Game", url=f"{BOT_URL}?start=solo")],
-        [InlineKeyboardButton(text="🌐 Mini App / Profil / Shop", url=BOT_URL)],
+        [InlineKeyboardButton(text="👤 Profil / Shop (shaxsiy chat)", url=BOT_URL)],
     ])
 
 
 @router.message(Command("app"))
 async def open_miniapp(message: Message) -> None:
-    is_private = bool(message.chat and message.chat.type == "private")
-    if not is_private:
-        await message.answer(
-            "🌐 Mini App Telegram’da shaxsiy chatda ochiladi. Quyidagi tugmani bosing, "
-            "yoki guruhda /group buyrug‘i bilan o‘yin menyusini oching.",
-            reply_markup=miniapp_keyboard(private=False),
-        )
-        return
     await message.answer(
-        "🌌 <b>MAFIA UZ MINI APP</b>\n\n"
-        "Zamonaviy o‘yin menyusi, xonalar, profil va Shop.\n"
-        "Eslatma: Mini App’ning ayrim ko‘rsatkichlari hozircha demo ma’lumotlardan foydalanadi.",
-        reply_markup=miniapp_keyboard(private=True),
+        "ℹ️ <b>Mini App hozircha vaqtincha o‘chirib qo‘yilgan.</b>\n\n"
+        "Barcha asosiy funksiyalarni Telegram buyruqlari va menyu tugmalari orqali ishlatishingiz mumkin.",
+        reply_markup=main_menu_keyboard() if message.chat.type == "private" else group_keyboard(),
     )
 
 
@@ -152,3 +144,23 @@ async def group_rules(callback: CallbackQuery) -> None:
         "• Mafiya son jihatdan tenglashsa yoki ustun bo‘lsa — mafiya g‘alaba qiladi."
     )
     await callback.answer()
+
+
+@router.my_chat_member()
+async def bot_added_to_group(event: ChatMemberUpdated) -> None:
+    if event.chat.type not in {"group", "supergroup"}:
+        return
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
+    if old_status in {"left", "kicked"} and new_status in {"member", "administrator"}:
+        await event.bot.send_message(
+            chat_id=event.chat.id,
+            text=(
+                "🎭 <b>MafiaUzBot guruhga qo‘shildi!</b>\n\n"
+                "🎮 O‘yinni boshlash: <code>/game</code>\n"
+                "📋 Guruh menyusi: <code>/group</code>\n"
+                "👥 Kamida 4 o‘yinchi kerak. Har bir o‘yinchi botning shaxsiy chatida "
+                "<code>/start</code> yuborsin, shunda maxfiy rollarni olishi mumkin."
+            ),
+            reply_markup=group_keyboard(),
+        )
