@@ -110,7 +110,7 @@ async def _finish(bot, session, room: GameRoom, game: dict, winner: str) -> None
             else:
                 db_user.losses += 1
     await _save(session, f"roomgame:{room.id}", game)
-    role_lines = "\n".join(f"• {p['name']} — {_role_name(p['role'])}" for p in game["players"])
+    role_lines = "\n".join(f"• {escape(p['name'])} — {_role_name(p['role'])}" for p in game["players"])
     team = "🔪 Mafia" if winner == "mafia" else "🕊️ Tinch aholi"
     await _tell_all(bot, game, f"🏁 <b>O‘yin tugadi!</b>\nG‘olib: {team}\nHar bir g‘olib +50 🪙 oldi.\n\n<b>Rollar:</b>\n{role_lines}")
 
@@ -157,7 +157,7 @@ async def _start_day(bot, session, room: GameRoom, game: dict, killed: int | Non
     game["phase"] = "day"
     game["actions"] = {}
     await _save(session, f"roomgame:{room.id}", game)
-    dead_name = next((p["name"] for p in game["players"] if p["id"] == killed), None)
+    dead_name = next((escape(p["name"]) for p in game["players"] if p["id"] == killed), None)
     news = f"☀️ <b>{game['round']}-kun boshlandi!</b>\n"
     if killed is None:
         news += "Bu kecha hech kim nishonga olinmadi.\n"
@@ -214,7 +214,7 @@ async def start_room_game(bot, room_id: int) -> tuple[bool, str]:
             await _save(session, f"roomgame:{room.id}", game)
 
     for player in game_players:
-        extra = "\nMafiya jamoadoshlari: " + ", ".join(p["name"] for p in game_players if p["role"] == MAFIA and p["id"] != player["id"]) if player["role"] == MAFIA else ""
+        extra = "\nMafiya jamoadoshlari: " + ", ".join(escape(p["name"]) for p in game_players if p["role"] == MAFIA and p["id"] != player["id"]) if player["role"] == MAFIA else ""
         try:
             await bot.send_message(player["id"], f"🎭 <b>Sizning rolingiz:</b> {_role_name(player['role'])}\nXona: <code>{room_code}</code>{extra}\n\nRolingizni sir saqlang.")
         except Exception:
@@ -314,7 +314,7 @@ async def night_action(callback: CallbackQuery) -> None:
                 game["actions"][str(actor_id)] = {"type": "doctor", "target": None}
             elif action == "night_detective" and actor["role"] == "detective" and actor_id != target_raw:
                 game["actions"][str(actor_id)] = {"type": "detective", "target": target_raw}
-                await callback.bot.send_message(actor_id, f"🕵️ Tekshiruv: {target['name']} {'🔪 mafiya' if target['role'] == MAFIA else '🕊️ mafiya emas'}.")
+                await callback.bot.send_message(actor_id, f"🕵️ Tekshiruv: {escape(target['name'])} {'mafiya' if target['role'] == MAFIA else 'mafiya emas'}.")
             else:
                 await callback.answer("Bu nishonni tanlay olmaysiz.", show_alert=True)
                 return
