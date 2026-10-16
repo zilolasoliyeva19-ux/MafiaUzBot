@@ -80,8 +80,9 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="lastwords", description="Oxirgi so‘zni yozish"),
         BotCommand(command="skip", description="Oxirgi so‘zdan voz kechish"),
         BotCommand(command="stars", description="Stars va Premium"),
-        BotCommand(command="buycoins", description="Tangalar xarid qilish"),
-        BotCommand(command="buyvip", description="VIP xarid qilish"),
+        BotCommand(command="buycoins", description="Tangalar xarid qilish: /buycoins 100"),
+        BotCommand(command="buydiamond", description="Olmos xarid qilish"),
+        BotCommand(command="buypremium", description="Premium — 50 Stars / 30 kun"),
         BotCommand(command="rules", description="O‘yin qoidalari"),
         BotCommand(command="help", description="Yordam"),
     ]
