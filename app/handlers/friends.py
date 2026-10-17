@@ -3,6 +3,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.filters import BaseFilter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
@@ -11,6 +12,15 @@ from app.models import BotSetting, User
 from app.services.rooms import register_user
 
 router = Router(name="friends")
+
+
+class PendingFriendInput(BaseFilter):
+    async def __call__(self, message: Message) -> bool:
+        if not message.from_user or not message.text or message.text.startswith("/"):
+            return False
+        async with get_session_factory()() as session:
+            row = await session.get(BotSetting, f"u:{message.from_user.id}:friend_pending")
+            return bool(row and row.value == "add")
 
 
 async def _read_list(session, key: str) -> list[int]:
@@ -217,7 +227,7 @@ async def cancel_pending(message: Message) -> None:
     await message.answer("Bekor qilindi.", reply_markup=_menu_keyboard())
 
 
-@router.message(F.text & ~F.text.startswith("/"))
+@router.message(PendingFriendInput())
 async def process_friend_input(message: Message) -> None:
     if not message.from_user or not message.text:
         return
