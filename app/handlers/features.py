@@ -204,8 +204,8 @@ def _shop_keyboard(coins: int, diamonds: int, inventory: list[str]) -> InlineKey
         label = f"{'✅' if owned else '🛒'} {item['name']} — {item['price']} {currency_icon}{pass_icon}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"shop:buy:{item_id}" if not owned else "shop:owned")])
     rows.extend([
-        [InlineKeyboardButton(text="🎁 Oddiy sandiq — 100 🪙", callback_data="shop:crate:basic")],
-        [InlineKeyboardButton(text="💎 Premium sandiq — 250 🪙", callback_data="shop:crate:premium")],
+        [InlineKeyboardButton(text="🎁 Oddiy sandiq — 100 🪙", callback_data="shop:crate:choose:basic")],
+        [InlineKeyboardButton(text="💎 Premium sandiq — 250 🪙", callback_data="shop:crate:choose:premium")],
         [InlineKeyboardButton(text="🔄 Yangilash", callback_data="shop:refresh")],
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -290,23 +290,59 @@ async def shop_owned(callback: CallbackQuery) -> None:
     await callback.answer("Bu buyum sizda bor.")
 
 
-@router.callback_query(F.data.startswith("shop:crate:"))
-async def shop_open_crate(callback: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("shop:crate:choose:"))
+async def choose_crate_quantity(callback: CallbackQuery) -> None:
     crate = (callback.data or "").rsplit(":", 1)[-1]
     if crate not in {"basic", "premium"}:
         await callback.answer("Sandiq turi topilmadi.", show_alert=True)
         return
+    price = 100 if crate == "basic" else 250
+    label = "Oddiy" if crate == "basic" else "Premium"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"1 ta · {price} 🪙", callback_data=f"shop:crate:open:{crate}:1")],
+        [InlineKeyboardButton(text=f"3 ta · {price*3} 🪙", callback_data=f"shop:crate:open:{crate}:3")],
+        [InlineKeyboardButton(text=f"5 ta · {price*5} 🪙", callback_data=f"shop:crate:open:{crate}:5")],
+        [InlineKeyboardButton(text="⬅️ Shopga qaytish", callback_data="shop:refresh")],
+    ])
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            f"🎁 <b>{label} sandiq</b>\n\nNechta ochmoqchisiz?\n"
+            "Balansingiz yetarli bo‘lsa, tanlangan sandiqlar ochiladi. Yetmasa, tanga yechilmaydi.",
+            reply_markup=keyboard,
+        )
+
+
+@router.callback_query(F.data.startswith("shop:crate:"))
+async def shop_open_crate(callback: CallbackQuery) -> None:
+    parts = (callback.data or "").split(":")
+    if len(parts) == 3:
+        crate, quantity = parts[2], 1
+    elif len(parts) == 5 and parts[2] == "open":
+        crate = parts[3]
+        try:
+            quantity = int(parts[4])
+        except ValueError:
+            quantity = 0
+    else:
+        await callback.answer("Sandiq tanlovi noto‘g‘ri.", show_alert=True)
+        return
+    if crate not in {"basic", "premium"} or quantity not in {1, 3, 5}:
+        await callback.answer("Sandiq miqdori noto‘g‘ri.", show_alert=True)
+        return
     uid = callback.from_user.id
-    cost = 100 if crate == "basic" else 250
-    inventory = []
+    cost_each = 100 if crate == "basic" else 250
+    total_cost = cost_each * quantity
+    rewards: dict[str, int] = {}
+    new_items: list[str] = []
     async with get_session_factory()() as session:
         async with session.begin():
             await _ensure_user(session, callback.from_user)
             balance = await _coins(session, uid)
-            if balance < cost:
-                result = f"Sandiq uchun {cost} 🪙 kerak. Balansingiz: {balance} 🪙."
+            if balance < total_cost:
+                result = f"❌ Tanga yetarli emas. {quantity} ta sandiq uchun {total_cost} 🪙 kerak, balansingizda {balance} 🪙 bor. Hech narsa yechilmadi."
             else:
-                await _set_value(session, f"u:{uid}:coins", str(balance - cost))
+                await _set_value(session, f"u:{uid}:coins", str(balance - total_cost))
                 inventory = await _inventory(session, uid)
                 if crate == "basic":
                     drops = [
@@ -320,27 +356,38 @@ async def shop_open_crate(callback: CallbackQuery) -> None:
                         ("item", "vip_frame", 20), ("item", "gold_badge", 15),
                         ("diamond", 1, 10), ("diamond", 2, 5),
                     ]
-                kind, reward, _weight = random.choices(drops, weights=[entry[2] for entry in drops], k=1)[0]
-                if kind == "coins":
-                    balance = await _coins(session, uid) + int(reward)
-                    await _set_value(session, f"u:{uid}:coins", str(balance))
-                    result = f"🎉 Sandiqdan <b>+{reward} 🪙</b> chiqdi!"
-                elif kind == "diamond":
-                    diamonds = int(await _get_value(session, f"u:{uid}:diamonds", "0")) + int(reward)
-                    await _set_value(session, f"u:{uid}:diamonds", str(diamonds))
-                    result = f"💎 Sandiqdan <b>+{reward} olmos</b> chiqdi!"
-                else:
-                    item = SHOP_ITEMS[str(reward)]
-                    if str(reward) in inventory:
-                        balance = await _coins(session, uid) + 75
-                        await _set_value(session, f"u:{uid}:coins", str(balance))
-                        result = f"🎁 {item['name']} sizda bor ekan — uning o‘rniga +75 🪙 oldingiz."
+                for _ in range(quantity):
+                    kind, reward, _weight = random.choices(drops, weights=[entry[2] for entry in drops], k=1)[0]
+                    if kind == "coins":
+                        rewards["🪙 tanga"] = rewards.get("🪙 tanga", 0) + int(reward)
+                    elif kind == "diamond":
+                        rewards["💎 olmos"] = rewards.get("💎 olmos", 0) + int(reward)
                     else:
-                        inventory.append(str(reward))
-                        await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
-                        result = f"🎁 Sandiqdan <b>{item['name']}</b> chiqdi!"
-    await callback.answer(result, show_alert=True)
+                        item_id = str(reward)
+                        item = SHOP_ITEMS[item_id]
+                        if item_id in inventory:
+                            rewards["🪙 tanga (takroriy buyum o‘rniga)"] = rewards.get("🪙 tanga (takroriy buyum o‘rniga)", 0) + 75
+                        else:
+                            inventory.append(item_id)
+                            new_items.append(item["name"])
+                current_coins = await _coins(session, uid)
+                current_diamonds = int(await _get_value(session, f"u:{uid}:diamonds", "0"))
+                current_coins += rewards.get("🪙 tanga", 0) + rewards.get("🪙 tanga (takroriy buyum o‘rniga)", 0)
+                current_diamonds += rewards.get("💎 olmos", 0)
+                await _set_value(session, f"u:{uid}:coins", str(current_coins))
+                await _set_value(session, f"u:{uid}:diamonds", str(current_diamonds))
+                await _set_value(session, f"u:{uid}:items", json.dumps(inventory, ensure_ascii=False))
+                summary = [f"• {label}: <b>+{amount}</b>" for label, amount in rewards.items()]
+                summary.extend(f"• 🎁 {escape(name)}" for name in new_items)
+                result = (
+                    f"🎉 <b>{quantity} ta sandiq ochildi!</b>\n"
+                    f"🪙 Sarflandi: <b>{total_cost} tanga</b>\n\n"
+                    + ("\n".join(summary) if summary else "Bu safar buyum chiqmagan.")
+                    + f"\n\n💰 Yangi balans: <b>{current_coins} 🪙</b> · <b>{current_diamonds} 💎</b>"
+                )
+    await callback.answer("Sandiqlar ochildi." if "🎉" in result else "Tanga yetarli emas.", show_alert=True)
     if callback.message:
+        await callback.message.answer(result)
         try:
             async with get_session_factory()() as session:
                 coins = await _coins(session, uid)
