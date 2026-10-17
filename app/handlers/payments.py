@@ -48,8 +48,7 @@ async def stars_shop(message: Message) -> None:
         "• 👑 Profilingizda Premium belgisi\n"
         "• 🎁 G‘alaba uchun 25% ko‘proq tanga\n"
         "• 💎 Maxsus olmosli buyumlar\n\n"
-        "Pastdan kerakli mahsulotni tanlang. Tangani boshqa miqdorda olish uchun "
-        "<code>/buycoins 250</code> kabi yozing.",
+        "Pastdagi tugmalardan mahsulot va miqdorni tanlang. Xarid tasdiqlangach, valyuta balansingizga qo‘shiladi.",
         reply_markup=_stars_keyboard(),
     )
 
