@@ -122,6 +122,7 @@ async def admin_actions(callback: CallbackQuery) -> None:
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [toggle],
+            [InlineKeyboardButton(text="🪙 Balansni boshqarish", callback_data=f"admin:money:{target_id}")],
             [InlineKeyboardButton(text="⬅️ Foydalanuvchilar", callback_data="admin:users:0")],
             [InlineKeyboardButton(text="🏠 Admin bosh sahifa", callback_data="admin:home")],
         ])
@@ -184,6 +185,105 @@ async def admin_actions(callback: CallbackQuery) -> None:
             )
         except Exception:
             pass
+        return
+
+    if action.startswith("money:"):
+        parts = action.split(":")
+        if len(parts) == 2:
+            try:
+                target_id = int(parts[1])
+            except ValueError:
+                await callback.answer("ID noto‘g‘ri.", show_alert=True)
+                return
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🪙 Tanga qo‘shish", callback_data=f"admin:money:{target_id}:coins:add"),
+                 InlineKeyboardButton(text="🪙 Tanga ayirish", callback_data=f"admin:money:{target_id}:coins:remove")],
+                [InlineKeyboardButton(text="💎 Olmos qo‘shish", callback_data=f"admin:money:{target_id}:diamonds:add"),
+                 InlineKeyboardButton(text="💎 Olmos ayirish", callback_data=f"admin:money:{target_id}:diamonds:remove")],
+                [InlineKeyboardButton(text="⬅️ Foydalanuvchi", callback_data=f"admin:user:{target_id}")],
+            ])
+            await callback.answer()
+            if callback.message:
+                await callback.message.answer(
+                    f"💰 <b>Balans boshqaruvi</b> · <code>{target_id}</code>\n"
+                    "Avval valyuta va amalni tanlang, keyin miqdorni tanlang.",
+                    reply_markup=keyboard,
+                )
+            return
+        if len(parts) == 4:
+            try:
+                target_id = int(parts[1])
+            except ValueError:
+                await callback.answer("ID noto‘g‘ri.", show_alert=True)
+                return
+            currency, operation = parts[2], parts[3]
+            if currency not in {"coins", "diamonds"} or operation not in {"add", "remove"}:
+                await callback.answer("Amal noto‘g‘ri.", show_alert=True)
+                return
+            icon = "🪙" if currency == "coins" else "💎"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"10 {icon}", callback_data=f"admin:moneyset:{target_id}:{currency}:{operation}:10"),
+                 InlineKeyboardButton(text=f"50 {icon}", callback_data=f"admin:moneyset:{target_id}:{currency}:{operation}:50")],
+                [InlineKeyboardButton(text=f"100 {icon}", callback_data=f"admin:moneyset:{target_id}:{currency}:{operation}:100"),
+                 InlineKeyboardButton(text=f"500 {icon}", callback_data=f"admin:moneyset:{target_id}:{currency}:{operation}:500")],
+                [InlineKeyboardButton(text="⬅️ Balans menyusi", callback_data=f"admin:money:{target_id}")],
+            ])
+            await callback.answer()
+            if callback.message:
+                await callback.message.answer(
+                    f"{'➕ Qo‘shish' if operation == 'add' else '➖ Ayirish'} · {icon}\n"
+                    "Kerakli miqdorni tanlang:",
+                    reply_markup=keyboard,
+                )
+            return
+        await callback.answer("Balans amali noto‘g‘ri.", show_alert=True)
+        return
+
+    if action.startswith("moneyset:"):
+        parts = action.split(":")
+        try:
+            target_id, amount = int(parts[1]), int(parts[4])
+        except (IndexError, ValueError):
+            await callback.answer("Miqdor noto‘g‘ri.", show_alert=True)
+            return
+        if len(parts) != 5:
+            await callback.answer("Amal noto‘g‘ri.", show_alert=True)
+            return
+        currency, operation = parts[2], parts[3]
+        if currency not in {"coins", "diamonds"} or operation not in {"add", "remove"} or amount not in {10, 50, 100, 500}:
+            await callback.answer("Amal noto‘g‘ri.", show_alert=True)
+            return
+        key = f"u:{target_id}:{currency}"
+        async with get_session_factory()() as session:
+            async with session.begin():
+                user = await session.get(User, target_id)
+                if not user:
+                    await callback.answer("Foydalanuvchi topilmadi.", show_alert=True)
+                    return
+                row = await session.get(BotSetting, key)
+                default = 100 if currency == "coins" else 0
+                old = int(row.value) if row else default
+                new = old + amount if operation == "add" else max(0, old - amount)
+                if row is None:
+                    session.add(BotSetting(key=key, value=str(new)))
+                else:
+                    row.value = str(new)
+                session.add(AdminAuditLog(
+                    admin_id=callback.from_user.id,
+                    action=f"adjust_{currency}",
+                    target_id=target_id,
+                    details=f"{operation} {amount}: {old}->{new}",
+                ))
+        icon = "🪙" if currency == "coins" else "💎"
+        await callback.answer("Balans yangilandi.", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                f"✅ <code>{target_id}</code> balans yangilandi: <b>{new} {icon}</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Balans menyusi", callback_data=f"admin:money:{target_id}")],
+                    [InlineKeyboardButton(text="👤 Foydalanuvchi", callback_data=f"admin:user:{target_id}")],
+                ]),
+            )
         return
 
     if action == "home":
