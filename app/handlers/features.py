@@ -536,11 +536,19 @@ def _solo_autoplay_after_elimination(game: dict) -> str:
         killed = set()
         for target, source in attacks:
             if protected and target["id"] == protected["id"]:
-                narration.append(f"🛡️ {target['name']} hujumdan qutuldi.")
+                narration.append("🛡️ Bir hujum qaytarildi. Kim himoyalangani sir saqlanadi.")
             elif target["id"] not in killed:
                 target["alive"] = False
                 killed.add(target["id"])
-                narration.append(f"🌙 {target['name']} ({_solo_role_label(target['role'])}) tunda chiqib ketdi.")
+                narration.append("🌙 Tunda hujum sodir bo‘ldi. Nishon tonggacha oshkor qilinmaydi.")
+
+        if killed:
+            dawn_lines = [
+                f"💀 <b>{escape(p['name'])}</b> o‘yindan chiqdi. Roli: <b>{_solo_role_label(p['role'])}</b>."
+                for p in alive if p["id"] in killed
+            ]
+            narration.append("☀️ <b>TONG XABARI</b>")
+            narration.extend(dawn_lines)
 
         winner = _solo_winner(game)
         if winner:
