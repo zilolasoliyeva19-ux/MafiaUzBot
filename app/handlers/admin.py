@@ -130,7 +130,7 @@ async def admin_actions(callback: CallbackQuery) -> None:
             "👤 <b>FOYDALANUVCHI KARTASI</b>\\n\\n"
             f"Ism: <b>{escape(user.display_name)}</b>\\n"
             f"Telegram ID: <code>{user.telegram_id}</code>\\n"
-            f"Username: <code>{('@'+user.username) if user.username else 'yashirilgan / mavjud emas'}</code>\\n"
+            f"Username: <code>{escape('@'+user.username) if user.username else 'yashirilgan / mavjud emas'}</code>\\n"
             f"Holat: <b>{status}</b>\\n"
             f"🎮 O‘yinlar: <b>{user.games_played}</b> · 🏆 G‘alaba: <b>{user.wins}</b>"
         )
