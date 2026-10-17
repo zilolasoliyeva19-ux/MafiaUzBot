@@ -1,9 +1,9 @@
 import json
 from html import escape
 
-from aiogram import Router
-from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
 from app.database import get_session_factory
@@ -18,102 +18,145 @@ async def _read_list(session, key: str) -> list[int]:
     if not row:
         return []
     try:
-        values = json.loads(row.value)
-        return [int(value) for value in values]
+        return [int(value) for value in json.loads(row.value)]
     except (ValueError, TypeError, json.JSONDecodeError):
         return []
 
 
 async def _write_list(session, key: str, values: list[int]) -> None:
-    row = await session.get(BotSetting, key)
     payload = json.dumps(list(dict.fromkeys(values)))
+    row = await session.get(BotSetting, key)
     if row is None:
         session.add(BotSetting(key=key, value=payload))
     else:
         row.value = payload
 
 
+async def _set_pending(session, uid: int, action: str) -> None:
+    key = f"u:{uid}:friend_pending"
+    row = await session.get(BotSetting, key)
+    if row is None:
+        session.add(BotSetting(key=key, value=action))
+    else:
+        row.value = action
+
+
+def _menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Do‘st qo‘shish", callback_data="friends:add")],
+        [InlineKeyboardButton(text="📨 So‘rovlar", callback_data="friends:requests"),
+         InlineKeyboardButton(text="👥 Do‘stlarim", callback_data="friends:list")],
+        [InlineKeyboardButton(text="ℹ️ Maxfiylik", callback_data="friends:privacy")],
+    ])
+
+
 @router.message(Command("friends"))
-@router.message(lambda message: message.text == "👥 Do‘stlar")
+@router.message(F.text == "👥 Do‘stlar")
 async def show_friends(message: Message) -> None:
-    if not message.from_user:
-        return
-    async with get_session_factory()() as session:
-        ids = await _read_list(session, f"u:{message.from_user.id}:friends")
-        users = []
-        for friend_id in ids:
-            friend = await session.get(User, friend_id)
-            if friend:
-                users.append(friend)
-    lines = [f"• {escape(user.display_name)} · <code>{user.telegram_id}</code>" for user in users]
     await message.answer(
-        "👥 <b>DO‘STLAR RO‘YXATI</b>\n\n"
-        + ("\n".join(lines) if lines else "Ro‘yxat bo‘sh. /friendadd @username orqali taklif yuboring.")
-        + "\n\n"
-        "➕ Qo‘shish: <code>/friendadd @username</code>\n"
-        "✅ Qabul qilish: <code>/friendaccept TELEGRAM_ID</code>\n"
-        "➖ O‘chirish: <code>/friendremove TELEGRAM_ID</code>"
+        "👥 <b>DO‘STLAR MARKAZI</b>\n"
+        "<blockquote>Do‘stlik so‘rovlari va ro‘yxatingizni shu yerdan boshqaring.</blockquote>\n\n"
+        "🔐 Faqat siz boshlagan yoki qabul qilgan so‘rovlar ko‘rinadi.\n"
+        "🛡️ Telegram ID va username ommaviy reytingda ko‘rsatilmaydi.",
+        reply_markup=_menu_keyboard(),
     )
 
 
-@router.message(Command("friendadd"))
-async def request_friend(message: Message, command: CommandObject) -> None:
-    if not message.from_user:
-        return
-    username = (command.args or "").strip().lstrip("@")
-    if not username:
-        await message.answer("Foydalanish: <code>/friendadd @username</code>")
-        return
+@router.callback_query(F.data == "friends:add")
+async def begin_add(callback: CallbackQuery) -> None:
     async with get_session_factory()() as session:
         async with session.begin():
-            await register_user(session, message.from_user.id, message.from_user.username, message.from_user.full_name)
-            target = await session.scalar(select(User).where(User.username == username))
-            if not target:
-                result = "Bu username topilmadi. Do‘stingiz avval botga /start yuborishi kerak."
-                target_id = None
-            elif target.telegram_id == message.from_user.id:
-                result = "O‘zingizni do‘st sifatida qo‘sha olmaysiz."
-                target_id = None
-            else:
-                friends = await _read_list(session, f"u:{message.from_user.id}:friends")
-                if target.telegram_id in friends:
-                    result = "Bu foydalanuvchi allaqachon do‘stlaringiz ro‘yxatida."
-                    target_id = None
-                else:
-                    requests = await _read_list(session, f"u:{target.telegram_id}:friend_requests")
-                    if message.from_user.id not in requests:
-                        requests.append(message.from_user.id)
-                        await _write_list(session, f"u:{target.telegram_id}:friend_requests", requests)
-                    result = f"👋 {escape(target.display_name)} ga do‘stlik so‘rovi yuborildi."
-                    target_id = target.telegram_id
-    await message.answer(result)
-    if target_id:
-        try:
-            await message.bot.send_message(
-                target_id,
-                f"👥 <b>Do‘stlik so‘rovi</b>\n{escape(message.from_user.full_name)} sizni do‘stlarga qo‘shmoqchi.\n"
-                f"Qabul qilish: <code>/friendaccept {message.from_user.id}</code>",
-            )
-        except Exception:
-            pass
+            await _set_pending(session, callback.from_user.id, "add")
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer("➕ Do‘stingizning @username’ini yuboring. Bekor qilish uchun /cancel yuboring.")
 
 
-@router.message(Command("friendaccept"))
-async def accept_friend(message: Message, command: CommandObject) -> None:
-    if not message.from_user:
-        return
+@router.callback_query(F.data == "friends:list")
+async def friends_list(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    async with get_session_factory()() as session:
+        ids = await _read_list(session, f"u:{uid}:friends")
+        users = [await session.get(User, friend_id) for friend_id in ids]
+    rows = []
+    lines = []
+    for user in users:
+        if not user:
+            continue
+        lines.append(f"• {escape(user.display_name)}")
+        rows.append([InlineKeyboardButton(
+            text=f"➖ {user.display_name[:40]}",
+            callback_data=f"friends:remove:{user.telegram_id}",
+        )])
+    rows.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="friends:home")])
+    if callback.message:
+        await callback.message.answer(
+            "👥 <b>DO‘STLARIM</b>\n\n" + ("\n".join(lines) if lines else "Ro‘yxatingiz hozircha bo‘sh."),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "friends:requests")
+async def friend_requests(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    async with get_session_factory()() as session:
+        ids = await _read_list(session, f"u:{uid}:friend_requests")
+        users = [await session.get(User, requester_id) for requester_id in ids]
+    rows = []
+    lines = []
+    for user in users:
+        if not user:
+            continue
+        lines.append(f"• {escape(user.display_name)}")
+        rows.append([InlineKeyboardButton(
+            text=f"✅ Qabul qilish: {user.display_name[:35]}",
+            callback_data=f"friends:accept:{user.telegram_id}",
+        )])
+    rows.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="friends:home")])
+    if callback.message:
+        await callback.message.answer(
+            "📨 <b>KELGAN SO‘ROVLAR</b>\n\n" + ("\n".join(lines) if lines else "Yangi so‘rov yo‘q."),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "friends:home")
+async def friends_home(callback: CallbackQuery) -> None:
+    if callback.message:
+        await callback.message.answer("👥 <b>Do‘stlar markazi</b>", reply_markup=_menu_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "friends:privacy")
+async def friends_privacy(callback: CallbackQuery) -> None:
+    if callback.message:
+        await callback.message.answer(
+            "🔐 <b>MAXFIYLIK QOIDALARI</b>\n\n"
+            "• Do‘stlar ro‘yxati faqat o‘zingizga ko‘rinadi.\n"
+            "• Do‘stlik so‘rovi qabul qilinmaguncha ikki tomon do‘st bo‘lmaydi.\n"
+            "• Ommaviy reytingda Telegram ID va username ko‘rsatilmaydi.\n"
+            "• Istalgan vaqtda do‘stni ro‘yxatdan olib tashlashingiz mumkin."
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("friends:accept:"))
+async def accept_friend(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
     try:
-        requester_id = int((command.args or "").strip())
+        requester_id = int((callback.data or "").rsplit(":", 1)[-1])
     except ValueError:
-        await message.answer("Foydalanish: <code>/friendaccept TELEGRAM_ID</code>")
+        await callback.answer("So‘rov noto‘g‘ri.", show_alert=True)
         return
-    uid = message.from_user.id
     async with get_session_factory()() as session:
         async with session.begin():
             requests = await _read_list(session, f"u:{uid}:friend_requests")
             requester = await session.get(User, requester_id)
+            me = await session.get(User, uid)
             if requester_id not in requests or requester is None:
-                result = "Bu foydalanuvchidan kutilayotgan so‘rov topilmadi."
+                result = "Bu so‘rov topilmadi yoki allaqachon ko‘rib chiqilgan."
             else:
                 my_friends = await _read_list(session, f"u:{uid}:friends")
                 their_friends = await _read_list(session, f"u:{requester_id}:friends")
@@ -125,20 +168,24 @@ async def accept_friend(message: Message, command: CommandObject) -> None:
                 await _write_list(session, f"u:{uid}:friends", my_friends)
                 await _write_list(session, f"u:{requester_id}:friends", their_friends)
                 await _write_list(session, f"u:{uid}:friend_requests", requests)
-                result = f"✅ {escape(requester.display_name)} do‘stlaringizga qo‘shildi."
-    await message.answer(result)
-
-
-@router.message(Command("friendremove"))
-async def remove_friend(message: Message, command: CommandObject) -> None:
-    if not message.from_user:
-        return
+                result = f"✅ {escape(requester.display_name)} endi do‘stlaringiz ro‘yxatida."
+    await callback.answer(result, show_alert=True)
+    if callback.message:
+        await callback.message.answer(result, reply_markup=_menu_keyboard())
     try:
-        friend_id = int((command.args or "").strip())
+        await callback.bot.send_message(requester_id, "✅ Do‘stlik so‘rovingiz qabul qilindi! Endi do‘st bo‘ldingiz.")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("friends:remove:"))
+async def remove_friend(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    try:
+        friend_id = int((callback.data or "").rsplit(":", 1)[-1])
     except ValueError:
-        await message.answer("Foydalanish: <code>/friendremove TELEGRAM_ID</code>")
+        await callback.answer("Foydalanuvchi noto‘g‘ri.", show_alert=True)
         return
-    uid = message.from_user.id
     async with get_session_factory()() as session:
         async with session.begin():
             mine = await _read_list(session, f"u:{uid}:friends")
@@ -151,4 +198,64 @@ async def remove_friend(message: Message, command: CommandObject) -> None:
                 await _write_list(session, f"u:{uid}:friends", mine)
                 await _write_list(session, f"u:{friend_id}:friends", theirs)
                 result = "➖ Do‘st ro‘yxatdan olib tashlandi."
-    await message.answer(result)
+    await callback.answer(result, show_alert=True)
+    if callback.message:
+        await callback.message.answer(result, reply_markup=_menu_keyboard())
+    try:
+        await callback.bot.send_message(friend_id, "ℹ️ Siz bilan do‘stlik aloqasi yangilandi.")
+    except Exception:
+        pass
+
+
+@router.message(Command("cancel"))
+async def cancel_pending(message: Message) -> None:
+    if not message.from_user:
+        return
+    async with get_session_factory()() as session:
+        async with session.begin():
+            await _set_pending(session, message.from_user.id, "")
+    await message.answer("Bekor qilindi.", reply_markup=_menu_keyboard())
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def process_friend_input(message: Message) -> None:
+    if not message.from_user or not message.text:
+        return
+    uid = message.from_user.id
+    username = message.text.strip().lstrip("@")
+    async with get_session_factory()() as session:
+        async with session.begin():
+            pending = await session.get(BotSetting, f"u:{uid}:friend_pending")
+            if not pending or pending.value != "add":
+                return
+            pending.value = ""
+            await register_user(session, uid, message.from_user.username, message.from_user.full_name)
+            target = await session.scalar(select(User).where(User.username == username))
+            if not target:
+                result, target_id = "Bu username topilmadi. Do‘stingiz avval botga /start yuborgan bo‘lishi kerak.", None
+            elif target.telegram_id == uid:
+                result, target_id = "O‘zingizni do‘st sifatida qo‘sha olmaysiz.", None
+            else:
+                mine = await _read_list(session, f"u:{uid}:friends")
+                requests = await _read_list(session, f"u:{target.telegram_id}:friend_requests")
+                if target.telegram_id in mine:
+                    result, target_id = "Bu foydalanuvchi allaqachon do‘stlaringiz ro‘yxatida.", None
+                elif uid in requests:
+                    result, target_id = "So‘rov allaqachon yuborilgan.", None
+                else:
+                    requests.append(uid)
+                    await _write_list(session, f"u:{target.telegram_id}:friend_requests", requests)
+                    result, target_id = f"📨 So‘rov yuborildi: {escape(target.display_name)}.", target.telegram_id
+    await message.answer(result, reply_markup=_menu_keyboard())
+    if target_id:
+        try:
+            await message.bot.send_message(
+                target_id,
+                f"👥 <b>Yangi do‘stlik so‘rovi</b>\n{escape(message.from_user.full_name)} sizni do‘stlarga qo‘shmoqchi.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"friends:accept:{uid}")],
+                    [InlineKeyboardButton(text="❌ E’tibor bermaslik", callback_data="friends:requests")],
+                ]),
+            )
+        except Exception:
+            pass
