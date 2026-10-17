@@ -113,6 +113,8 @@ async def main() -> None:
     dispatcher = Dispatcher()
     dispatcher.message.outer_middleware(BanGuardMiddleware())
     dispatcher.callback_query.outer_middleware(BanGuardMiddleware())
+    dispatcher.inline_query.outer_middleware(BanGuardMiddleware())
+    dispatcher.pre_checkout_query.outer_middleware(BanGuardMiddleware())
     dispatcher.include_router(start_router)
     dispatcher.include_router(inline_router)
     dispatcher.include_router(miniapp_router)
