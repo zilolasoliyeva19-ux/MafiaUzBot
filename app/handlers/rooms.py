@@ -276,7 +276,8 @@ def room_keyboard(room_id: int) -> InlineKeyboardMarkup:
 def room_text(room: GameRoom, players: list, count: int | None = None) -> str:
     actual_count = len(players) if count is None else count
     owner = next((player for player in players if player.telegram_id == room.owner_id), None)
-    owner_display = (f"@{owner.username}" if owner and owner.username else (owner.display_name if owner else "O‘yinchi"))
+    # Public room cards use the display name only; never expose usernames unnecessarily.
+    owner_display = owner.display_name if owner else "O‘yinchi"
     owner_name = escape(owner_display[:64])
     player_lines = "\n".join(
         f"• {escape(player.display_name)}" + (" 👑" if player.telegram_id == room.owner_id else "")
