@@ -42,6 +42,12 @@ async def _write_list(session, key: str, values: list[int]) -> None:
         row.value = payload
 
 
+async def _notifications_enabled(uid: int) -> bool:
+    async with get_session_factory()() as session:
+        row = await session.get(BotSetting, f"u:{uid}:notify")
+        return not row or row.value != "0"
+
+
 async def _set_pending(session, uid: int, action: str) -> None:
     key = f"u:{uid}:friend_pending"
     row = await session.get(BotSetting, key)
@@ -182,10 +188,33 @@ async def accept_friend(callback: CallbackQuery) -> None:
     await callback.answer(result, show_alert=True)
     if callback.message:
         await callback.message.answer(result, reply_markup=_menu_keyboard())
+    if await _notifications_enabled(requester_id):
+        try:
+            await callback.bot.send_message(requester_id, "✅ Do‘stlik so‘rovingiz qabul qilindi! Endi do‘st bo‘ldingiz.")
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("friends:decline:"))
+async def decline_friend(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
     try:
-        await callback.bot.send_message(requester_id, "✅ Do‘stlik so‘rovingiz qabul qilindi! Endi do‘st bo‘ldingiz.")
-    except Exception:
-        pass
+        requester_id = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("So‘rov noto‘g‘ri.", show_alert=True)
+        return
+    async with get_session_factory()() as session:
+        async with session.begin():
+            requests = await _read_list(session, f"u:{uid}:friend_requests")
+            if requester_id in requests:
+                requests.remove(requester_id)
+                await _write_list(session, f"u:{uid}:friend_requests", requests)
+                result = "So‘rov rad etildi."
+            else:
+                result = "Bu so‘rov topilmadi."
+    await callback.answer(result, show_alert=True)
+    if callback.message:
+        await callback.message.answer("📨 So‘rovlar boshqaruvi", reply_markup=_menu_keyboard())
 
 
 @router.callback_query(F.data.startswith("friends:remove:"))
@@ -211,10 +240,11 @@ async def remove_friend(callback: CallbackQuery) -> None:
     await callback.answer(result, show_alert=True)
     if callback.message:
         await callback.message.answer(result, reply_markup=_menu_keyboard())
-    try:
-        await callback.bot.send_message(friend_id, "ℹ️ Siz bilan do‘stlik aloqasi yangilandi.")
-    except Exception:
-        pass
+    if await _notifications_enabled(friend_id):
+        try:
+            await callback.bot.send_message(friend_id, "ℹ️ Siz bilan do‘stlik aloqasi yangilandi.")
+        except Exception:
+            pass
 
 
 @router.message(Command("cancel"))
@@ -257,14 +287,14 @@ async def process_friend_input(message: Message) -> None:
                     await _write_list(session, f"u:{target.telegram_id}:friend_requests", requests)
                     result, target_id = f"📨 So‘rov yuborildi: {escape(target.display_name)}.", target.telegram_id
     await message.answer(result, reply_markup=_menu_keyboard())
-    if target_id:
+    if target_id and await _notifications_enabled(target_id):
         try:
             await message.bot.send_message(
                 target_id,
                 f"👥 <b>Yangi do‘stlik so‘rovi</b>\n{escape(message.from_user.full_name)} sizni do‘stlarga qo‘shmoqchi.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"friends:accept:{uid}")],
-                    [InlineKeyboardButton(text="❌ E’tibor bermaslik", callback_data="friends:requests")],
+                    [InlineKeyboardButton(text="❌ Rad etish", callback_data=f"friends:decline:{uid}")],
                 ]),
             )
         except Exception:
